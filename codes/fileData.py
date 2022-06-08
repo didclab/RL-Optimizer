@@ -136,56 +136,69 @@ input: filedata_grouped_df a pandas.core.groupby.generic.DataFrameGroupBy object
 
 
 
-class environmentGroup:
+class environmentGroups:
     def __init__(self,
-                filedata_grouped_df,groupKey):
+                filedata_grouped_df,groupKey,minimum_log_number):
                 self.logs=[]
                 self.grouped_df=filedata_grouped_df
-                self.a_group=self.grouped_df.get_group(groupKey)
-                self.group_max_throughput=self.a_group['TotalAvgTput'].max()
-                self.number_of_rows=self.a_group.shape[0]
-                self.group_max_throughput_parameters=max_throughput_to_parameter(self.a_group,self.group_max_throughput)
-                selected_no_test_rows=math.ceil(self.number_of_rows*1)  #30% is test data
-                a_group_test=self.a_group.sample(n=selected_no_test_rows)
-                self.group_identification=groupKey
-                for index, row in a_group_test.iterrows():
-                    self.logs.append(Log(index,[row['FileCount'], row['AvgFileSize'],row['BufSize'],row['Bandwidth'],row['AvgRtt'],row['CC_Level'],row['P_Level'],row['PP_Level'],row['numActiveCores'],row['frequency'],row['TotalAvgTput'],row['TotalEnergy'],row['DataTransferEnergy']]))
-                self.group_from_grouped_df=self.a_group.groupby(['CC_Level','P_Level','PP_Level'])#,'numActiveCores','frequency'
                 self.grouping_list_name=['CC_Level','P_Level','PP_Level']
+                self.a_group = pd.DataFrame()
+                self.key_state_dictionary={}
+                self.key_max_throughput_dictionary={}
+                self.key_max_throughput_parameters={}
+                self.key_group_identification={}
+                self.key_group_number_of_rows={}
+                self.key_group={}
                 self.action_list=[]
-                self.state_list=[]
-                for key in self.group_from_grouped_df.groups.keys():
-                    self.action_list.append(key)
-                    self.state_list.append([groupKey[0],groupKey[1],groupKey[2],groupKey[3],groupKey[4],key[0],key[1],key[2]]) #,key[3],key[4]
+                self.key_action_list={}
+                for key in groupKey:
+                    self.individual_group=self.grouped_df.get_group(key)
+                    if self.individual_group.shape[0] >=minimum_log_number:
+                        self.a_group = pd.concat([self.a_group,self.individual_group], axis=0)
+                        ###################################
+                        state_list=[]
+                        action_list_individual=[]
+                        group_from_grouped_df=self.individual_group.groupby(['CC_Level','P_Level','PP_Level'])#,'numActiveCores','frequency'
+                        for key_2 in group_from_grouped_df.groups.keys():
+                            action_list_individual.append(key_2)
+                            self.action_list.append(key_2)
+                            state_list.append([key[0],key[1],key[2],key[3],key[4],key_2[0],key_2[1],key_2[2]]) #,key[3],key[4]
+                        self.key_state_dictionary[key]=state_list
+                        self.key_max_throughput_dictionary[key]=self.individual_group['TotalAvgTput'].max()
+                        self.key_max_throughput_parameters[key]=max_throughput_to_parameter(self.individual_group,self.individual_group['TotalAvgTput'].max())
+                        self.key_group_identification[key]=key
+                        self.key_group_number_of_rows[key]=self.individual_group.shape[0]
+                        self.key_group[key]=self.individual_group
+                        self.key_action_list[key]=action_list_individual
+                        ####################################
+
+                    else:
+                        continue
+                self.action_list_duplicate_removed = [i for n, i in enumerate(self.action_list) if i not in self.action_list[:n]]
+
+
     """
-    input:
+    input:groupd key with ('FileCount', 'AvgFileSize', 'BufSize', 'Bandwidth', 'AvgRtt')
     output:provides the maximum throughput for the class groupkey
     """
 
-    def group_maximum_throughput(self):
-        return self.group_max_throughput
+    def group_maximum_throughput(self,key):
+        return self.key_max_throughput_dictionary[key]
 
     """
-    input:
+    input:groupd key with ('FileCount', 'AvgFileSize', 'BufSize', 'Bandwidth', 'AvgRtt')
     output:provides the total number of logs for the class groupkey
     """
-    def total_number_of_logs(self):
-        return self.number_of_rows
+    def total_number_of_logs(self,key):
+        return self.key_group_number_of_rows[key]
     """
-    input:
+    input:groupd key with ('FileCount', 'AvgFileSize', 'BufSize', 'Bandwidth', 'AvgRtt')
     output:provides the total dataframe for the class groupkey
     """
 
-    def return_a_group(self):
-        return self.a_group
+    def return_a_group(self,key):
+        return self.key_group[key]
 
-    """
-    input:
-    output:provides the group of groups (pp,p,cc) for the class groupkey
-    """
-
-    def return_group_from_grouped_df(self):
-        return self.group_from_grouped_df
     """
     input:
     output:provides the group of groups (pp,p,cc) name for the class groupkey
@@ -195,40 +208,51 @@ class environmentGroup:
         return self.grouping_list_name
 
     """
-    input:
+    input:groupd key with ('FileCount', 'AvgFileSize', 'BufSize', 'Bandwidth', 'AvgRtt')
     output:provides the action list  for the class groupkey
     """
-    def return_action_list(self):
-        return self.action_list
+    def return_action_list(self,key):
+        return self.key_action_list[key]
 
     """
-    input:
+    input:groupd key with ('FileCount', 'AvgFileSize', 'BufSize', 'Bandwidth', 'AvgRtt')
+    output:provides the action list  for the class groupkey
+    """
+    def return_global_action_list(self):
+        return self.action_list_duplicate_removed
+
+    """
+    input:groupd key with ('FileCount', 'AvgFileSize', 'BufSize', 'Bandwidth', 'AvgRtt')
     output:provides the state list  for the class groupkey
     """
-    def return_state_list(self):
-        return self.state_list
+    def return_state_list(self,key):
+        return self.key_state_dictionary[key]
 
     """
     input: takes a tuple of action key ('CC_Level','P_Level','PP_Level')
     output:provides the list of all the throughputs for the class groupkey and
            action key ('CC_Level','P_Level','PP_Level')
     """
-    def return_group_key_throughput(self,search_key):
+    def return_group_key_throughput(self,group_key,search_key):
         result_throughput=[]
-        log_group=self.group_from_grouped_df.get_group(search_key)
+        group_from_grouped_df=self.grouped_df.get_group(group_key)
+#         print(group_from_grouped_df,type(group_from_grouped_df))
+        group_of_group=group_from_grouped_df.groupby(['CC_Level','P_Level','PP_Level'])
+        log_group=group_of_group.get_group(search_key)
+#         print(log_group)
         for index, row in log_group.iterrows():
             result_throughput.append(row['TotalAvgTput'])
         return result_throughput
     """
-    input:
+    input:groupd key with ('FileCount', 'AvgFileSize', 'BufSize', 'Bandwidth', 'AvgRtt')
     output:provides the group key as tuple ('FileCount', 'AvgFileSize','BufSize', 'Bandwidth', 'AvgRtt')
     """
-    def return_group_identification(self):
-        return self.group_identification
+    def return_group_identification(self,key):
+        return self.key_group_identification[key]
 
     """
-    input:
+    input:groupd key with ('FileCount', 'AvgFileSize', 'BufSize', 'Bandwidth', 'AvgRtt')
     output:provides the group max throughput corresponding CC,P and PP level as a tuple
     """
-    def return_group_max_throughput_parameters(self):
-        return self.group_max_throughput_parameters
+    def return_group_max_throughput_parameters(self,key):
+        return self.key_max_throughput_parameters[key]
