@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 GAMMA=0.99
 BATCH_SIZE=32
 BUFFER_SIZE=50000
-MIN_REPLAY_SIZE=100
+MIN_REPLAY_SIZE=1000
 EPSILON_START=1.0
 EPSILON_END=0.02
 EPSILON_DECAY=100000
@@ -32,9 +32,11 @@ class Network(nn.Module):
         super().__init__()
         in_features=int(np.prod(env.obs_shape))
         self.net=nn.Sequential(
-                nn.Linear(in_features,128),
+                nn.Linear(in_features,512),
             nn.Tanh(),
-            nn.Linear(128, env.action_space.n))
+            # nn.Linear(1024,512),
+            # nn.Tanh(),
+            nn.Linear(512, env.action_space.n))
 
     def forward(self,x):
          return self.net(x)
@@ -52,7 +54,7 @@ class DQNAgent():
   def __init__(self,env,GAMMA=0.99,
                 BATCH_SIZE=32,
                 BUFFER_SIZE=50000,
-                MIN_REPLAY_SIZE=100,
+                MIN_REPLAY_SIZE=1000,
                 EPSILON_START=1.0,
                 EPSILON_END=0.02,
                 EPSILON_DECAY=100000,

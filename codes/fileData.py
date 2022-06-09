@@ -256,3 +256,97 @@ class environmentGroups:
     """
     def return_group_max_throughput_parameters(self,key):
         return self.key_max_throughput_parameters[key]
+
+
+class environmentGroupValidation:
+    def __init__(self,
+                filedata_grouped_df,groupKey):
+                self.logs=[]
+                self.grouped_df=filedata_grouped_df
+                self.a_group=self.grouped_df.get_group(groupKey)
+                self.group_max_throughput=self.a_group['TotalAvgTput'].max()
+                self.number_of_rows=self.a_group.shape[0]
+                self.group_max_throughput_parameters=max_throughput_to_parameter(self.a_group,self.group_max_throughput)
+                self.group_identification=groupKey
+                self.group_from_grouped_df=self.a_group.groupby(['CC_Level','P_Level','PP_Level'])#,'numActiveCores','frequency'
+                self.grouping_list_name=['CC_Level','P_Level','PP_Level']
+                self.action_list=[]
+                self.state_list=[]
+                for key in self.group_from_grouped_df.groups.keys():
+                    self.action_list.append(key)
+                    self.state_list.append([groupKey[0],groupKey[1],groupKey[2],groupKey[3],groupKey[4],key[0],key[1],key[2]]) #,key[3],key[4]
+    """
+    input:
+    output:provides the maximum throughput for the class groupkey
+    """
+
+    def group_maximum_throughput(self):
+        return self.group_max_throughput
+
+    """
+    input:
+    output:provides the total number of logs for the class groupkey
+    """
+    def total_number_of_logs(self):
+        return self.number_of_rows
+    """
+    input:
+    output:provides the total dataframe for the class groupkey
+    """
+
+    def return_a_group(self):
+        return self.a_group
+
+    """
+    input:
+    output:provides the group of groups (pp,p,cc) for the class groupkey
+    """
+
+    def return_group_from_grouped_df(self):
+        return self.group_from_grouped_df
+    """
+    input:
+    output:provides the group of groups (pp,p,cc) name for the class groupkey
+    """
+
+    def return_grouping_list_name(self):
+        return self.grouping_list_name
+
+    """
+    input:
+    output:provides the action list  for the class groupkey
+    """
+    def return_action_list(self):
+        return self.action_list
+
+    """
+    input:
+    output:provides the state list  for the class groupkey
+    """
+    def return_state_list(self):
+        return self.state_list
+
+    """
+    input: takes a tuple of action key ('CC_Level','P_Level','PP_Level')
+    output:provides the list of all the throughputs for the class groupkey and
+           action key ('CC_Level','P_Level','PP_Level')
+    """
+    def return_group_key_throughput(self,search_key):
+        result_throughput=[]
+        log_group=self.group_from_grouped_df.get_group(search_key)
+        for index, row in log_group.iterrows():
+            result_throughput.append(row['TotalAvgTput'])
+        return result_throughput
+    """
+    input:
+    output:provides the group key as tuple ('FileCount', 'AvgFileSize','BufSize', 'Bandwidth', 'AvgRtt')
+    """
+    def return_group_identification(self):
+        return self.group_identification
+
+    """
+    input:
+    output:provides the group max throughput corresponding CC,P and PP level as a tuple
+    """
+    def return_group_max_throughput_parameters(self):
+        return self.group_max_throughput_parameters
