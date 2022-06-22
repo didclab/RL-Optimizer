@@ -1,5 +1,6 @@
 from networks import *
 import gym
+import tqdm
 from tqdm import tqdm_notebook
 import numpy as np
 from collections import deque
@@ -37,18 +38,18 @@ class A2cAgent():
     self.value_network = StateValueNetwork(self.env.observation_space.shape[0]).to(self.DEVICE)
 
     #Init optimizer
-    self.policy_optimizer=optim.Adam(self.actor_network.parameters(),lr=1e-2)
-    self.stateval_optimizer=optim.Adam(self.value_network.parameters(),lr=1e-2)
+    self.policy_optimizer=optim.Adam(self.actor_network.parameters(),lr=1e-3)
+    self.stateval_optimizer=optim.Adam(self.value_network.parameters(),lr=1e-3)
     #track scores
     self.scores = []
     #recent 100 scores
-    self.recent_scores = deque(maxlen=100)
+    self.recent_scores = deque(maxlen=50)
     # self.WRITER.add_graph('actor',self.actor_network,torch.from_numpy(self.env.reset()).float().unsqueeze(0).to(self.DEVICE))
     # self.WRITER.add_graph('critic',self.value_network,torch.from_numpy(self.env.reset()).float().unsqueeze(0).to(self.DEVICE))
 
-  def training_agent(self,NUM_EPISODES=1000,MAX_STEPS=10000,SOLVED_SCORE=200):
+  def training_agent(self,NUM_EPISODES=1000,MAX_STEPS=100,SOLVED_SCORE=95):
     #run episodes
-    for episode in tqdm_notebook(range(NUM_EPISODES)):
+    for episode in tqdm.notebook.tqdm(range(NUM_EPISODES)):
       #init variables
       state = self.env.reset()
       done = False
@@ -96,6 +97,7 @@ class A2cAgent():
           #move into new state, discount I
           state = new_state
           I *= self.DISCOUNT_FACTOR
+          self.WRITER.add_scalar("I", I, step)
           if done:
             break
 
@@ -105,7 +107,6 @@ class A2cAgent():
       self.recent_scores.append(score)
       self.WRITER.add_scalar("val_loss", val_loss, episode)
       self.WRITER.add_scalar("policy_loss", policy_loss, episode)
-      self.WRITER.add_scalar("I", I, episode)
       self.WRITER.add_scalar("score/reward",score , episode)
       #early stopping if we meet solved score goal
       if np.array(self.recent_scores).mean() >= SOLVED_SCORE:

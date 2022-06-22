@@ -21,7 +21,7 @@ class PolicyNetwork(nn.Module):
         x = self.input_layer(x)
 
         #relu activation
-        x = F.relu(x)
+        x = torch.tanh(x)
 
         #actions
         actions = self.output_layer(x)
@@ -47,7 +47,7 @@ class StateValueNetwork(nn.Module):
         x = self.input_layer(x)
 
         #activiation relu
-        x = F.relu(x)
+        x = torch.tanh(x)
 
         #get state value
         state_value = self.output_layer(x)
