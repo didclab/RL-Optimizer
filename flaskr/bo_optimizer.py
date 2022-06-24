@@ -1,8 +1,7 @@
 import numpy as np
-import time
 import matplotlib
-matplotlib.use('GTKAgg')
-from matplotlib import pyplot as plt
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from bayes_opt import BayesianOptimization, UtilityFunction
 from .classes import CreateOptimizerRequest
 from .classes import DeleteOptimizerRequest
@@ -10,7 +9,8 @@ from .classes import InputOptimizerRequest
 
 bayesian_optimizer_map = {}
 bo_utility_map = {}
-bo_graph_map = {}
+
+list_name_variables = ['concurrency', 'parallelism', 'pipelining', 'throughput']
 
 def create_optimizer(create_req: CreateOptimizerRequest):
     pbounds = {}
@@ -28,14 +28,15 @@ def create_optimizer(create_req: CreateOptimizerRequest):
         pbounds=pbounds,
         verbose=2,
     )
-    utility = UtilityFunction(kind="ucb", kappa=2.5, xi=0.0)
 
+    utility = UtilityFunction(kind="ucb", kappa=2.5, xi=0.0)
     bayesian_optimizer_map[create_req.node_id] = local_opt
     bo_utility_map[create_req.node_id] = utility
 
 
 def delete_optimizer(delete_req: DeleteOptimizerRequest):
     print(delete_req)
+    plot_gp(delete_req.node_id)
     del bayesian_optimizer_map[delete_req.node_id]
     return delete_req.node_id
 
@@ -49,12 +50,12 @@ def input_optimizer(input_req: InputOptimizerRequest):
     x = np.array([input_req.concurrency, input_req.parallelism, input_req.pipelining, input_req.chunk_size])
     y = input_req.throughput
     _uf = bo_utility_map[input_req.node_id]
-
     local_opt.register(
         params=x,
         target=y,
     )
     print("BO has registered: {} points.".format(len(local_opt.space)), end="\n\n")
+
     local_opt.suggest(_uf)
     return local_opt.suggest(_uf)
 
@@ -62,17 +63,32 @@ def input_optimizer(input_req: InputOptimizerRequest):
 def black_box_func(throughput):
     return throughput
 
-def graph(transfer_node_id, params, y):
+
+def plot_gp(transfer_node_id):
+    optimizer = bayesian_optimizer_map[transfer_node_id]
+    concurrency_list = []  # x
+    parallelism_list = []  # y
+    pipe_list = []  # z
+    chunksize_list = []  # w
+    throughput_list = []
+    for key in optimizer.space._cache:
+        parallelism_list.append(key[0])
+        concurrency_list.append(key[1])
+        pipe_list.append(key[2])
+        chunksize_list.append(key[3])
+        throughput_list.append(optimizer.space._cache[key])
+
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
-    x = np.random.standard_normal(100)
-    y = np.random.standard_normal(100)
-    z = np.random.standard_normal(100)
-    c = np.random.standard_normal(100)
+    # Creating plot
+    ax.scatter(concurrency_list, parallelism_list, pipe_list, c=throughput_list, cmap=plt.hot())
+    ax.set_xlabel(list_name_variables[0])
+    ax.set_ylabel(list_name_variables[1])
+    ax.set_zlabel(list_name_variables[2])
+    plt.colorbar()
+    plt.title('%s in function of %s, %s and %s' % (
+        list_name_variables[0], list_name_variables[1], list_name_variables[2],
+        list_name_variables[3]))
 
-    img = ax.scatter(x, y, z, c=c, cmap=plt.hot())
-    fig.colorbar(img)
-    plt.show()
-
-
+    plt.savefig(transfer_node_id + '.png')

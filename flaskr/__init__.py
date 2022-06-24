@@ -30,11 +30,10 @@ def input_to_optimizer():
                                                 jd['parallelism'], jd['pipelining'], jd['chunkSize'])
         print(input_operation.__str__())
         try:
-            val = bo_optimizer.input_optimizer(input_operation)
+            return bo_optimizer.input_optimizer(input_operation), 200
         except KeyError:
             print("Failed to insert point as we have already tried this point: ")
-        print(val)
-    return val, 200
+    return '', 500
 
 
 @app.route('/optimizer/delete', methods=['POST'])
