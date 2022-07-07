@@ -8,7 +8,10 @@ LEARN_RATE_A = 0.001
 LEARN_RATE_C = 0.001
 TH_SCORE = 210.
 
+N_STATE_VAR = 4
+N_ACTIONS = 2
+
 device = torch.device("cpu")
-if torch.cuda.is_available():
-    device = torch.device("cuda")
+# if torch.cuda.is_available():
+#     device = torch.device("cuda")
 print(device)
