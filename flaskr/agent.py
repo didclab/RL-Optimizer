@@ -58,8 +58,8 @@ device = torch.device("cuda:0" if args.cuda else "cpu")
 class Optimizer(object):
     def train(self, next_obs, reward, done, info, encoded_action):
         
-        print('Actions:', encoded_action, self.action)
-        if self.action.item() != encoded_action:
+        print('Actions:', encoded_action, self.action_clone)
+        if self.action_clone.item() != encoded_action:
             print('!! SKIPPING !!')
             return None
 
@@ -121,9 +121,9 @@ class Optimizer(object):
             self.value, self.action, self.action_log_prob, self.recurrent_hidden_states = self.actor_critic.act(
                         self.rollouts.obs[self.cur_step], self.rollouts.recurrent_hidden_states[self.cur_step],
                         self.rollouts.masks[self.cur_step])
-            self.action_q.append((
-                self.value, self.action, self.action_log_prob, self.recurrent_hidden_states
-            ))
+            # self.action_q.append((
+            #     self.value, self.action, self.action_log_prob, self.recurrent_hidden_states
+            # ))
         except:
             print("NAN ERROR", reward)
             self.actor_critic = Policy(
@@ -143,8 +143,8 @@ class Optimizer(object):
                 max_grad_norm=args.max_grad_norm
             )
         self.cur_step += 1
-        
-        return self.action
+        self.action_clone = self.action.clone().detach()
+        return self.action_clone
 
 
     def __init__(self, create_req: CreateOptimizerRequest):
@@ -194,13 +194,14 @@ class Optimizer(object):
                     self.rollouts.masks[0])
         self.num_steps = args.num_steps
         self.cur_step = 1
+        self.action_clone = self.action.clone().detach()
         
         self.action_q = deque(maxlen=2)
         self.action_q.append((
             self.value, self.action, self.action_log_prob, self.recurrent_hidden_states
         ))
 
-        self.envs.interpret(self.action)
+        self.envs.interpret(self.action.item())
         
 
 def get_optimizer(node_id):

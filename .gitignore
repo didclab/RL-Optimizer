@@ -166,3 +166,5 @@ main.py
 neural_nets.py
 agent_memory.py
 *.pt
+*.json
+pickles/

@@ -27,16 +27,20 @@ class Args:
         self.num_mini_batch = 32
         self.clip_param = 0.2
         self.log_interval = 10
-        self.save_interval = 100
+        self.save_interval = 5
         self.eval_interval = None
         self.num_env_steps = 10e6
-        self.env_name = 'PongNoFrameskip-v4'
+        self.env_name = 'Influx-v1'
         self.log_dir = '/tmp/gym/'
-        self.save_dir = './trained_models/'
+        self.save_dir = '/home/didclab/Downloads/RL-Optimizer/flaskr/trained_models'
         self.no_cuda = False
         self.use_proper_time_limits = False
         self.recurrent_policy = False
         self.use_linear_lr_decay = False
+
+        # self.file_path = '/home/didclab/Pictures/ubuntu-20.04.3-desktop-amd64(1).iso'
+        # self.file_path = '/home/didclab/Pictures/moby.img'
+        self.file_path = ['/home/didclab/Pictures/willy.img', '/home/didclab/Pictures/ubuntu-20.04.3-desktop-amd64.iso']
 
         self.cuda = False
 

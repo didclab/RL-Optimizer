@@ -1,11 +1,13 @@
 import gym
 import numpy as np
 import torch
+from pandas import isna
 
 from gym import spaces
 from influxdb_client import InfluxDBClient
 
 import time
+from math import floor
 
 
 class InfluxData():
@@ -19,24 +21,25 @@ class InfluxData():
 
         self.p = {
             '_APP_NAME': "onedatashare@gmail.com-didclab-pred",
-            '_TIME': '-5m',
+            '_TIME': '-2m',
         }
 
     def query_space(self):
         q='''from(bucket: "onedatashare@gmail.com")
-  |> range(start: -1h)
+  |> range(start: -5m)
   |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value") 
   |> filter(fn: (r) => r["_measurement"] == "transfer_data")
   |> filter(fn: (r) => r["APP_NAME"] == _APP_NAME)'''
 
         data_frame = self.query_api.query_data_frame(q, params=self.p)
+        # print(data_frame.tail())
         # print(data_frame.columns)
         # print(data_frame)
         return data_frame
 
     def prune_df(self, df):
         df2 = df[self.space_keys]
-        # print(df2.head())
+        # print(df2.tail())
         return df2
 
     def close_client(self):
@@ -74,8 +77,8 @@ class InfluxEnvironment(gym.Env):
 
         self.current_action = {
             'chunkSize': 6000000.0, # set this to starting parameters
-            'concurrency': 1.0, # set this to starting parameters
-            'parallelism': 8.0, # set this to starting parameters
+            'concurrency': 2.0, # set this to starting parameters
+            'parallelism': 4.0, # set this to starting parameters
             'pipelining': 6.0, # set this to starting parameters
         }
 
@@ -85,11 +88,14 @@ class InfluxEnvironment(gym.Env):
         self.bootstrapping = True
         self.output = None
 
+        self._recovery_reward = 3.
+
     def close(self):
         self.influx_client.close_client()
 
     def parse_action(self, net_output):
-        return (torch.div(net_output, 6, rounding_mode='floor'), net_output % 6)
+        # return (torch.div(net_output, 6, rounding_mode='floor'), net_output % 6)
+        return (net_output // 6, net_output % 6)
 
     def encode_actions(self, row):
         try:
@@ -135,10 +141,11 @@ class InfluxEnvironment(gym.Env):
         filtered_data = data[(data['jobId'] > self._data_keys['jobId']) |
             ((data['jobId'] == self._data_keys['jobId']) & (data['bytes_sent'] > self._data_keys['bytes_sent']) & 
                 (data['parallelism'] > 0))].copy()
+        # filtered_data = data.copy()
         encoded_action = -1 if filtered_data.empty else self.encode_actions(filtered_data.iloc[-1])
 
-        if self.output and self.output.item() == encoded_action:
-            print('Next Event Available!')
+        if not filtered_data.empty and (not self.output or (self.output.item() == encoded_action)):
+            print('Next Event Available for action', self.output)
 
             # Register new keys
             self._data_keys['jobId'] = filtered_data['jobId'].iat[-1]
@@ -154,9 +161,16 @@ class InfluxEnvironment(gym.Env):
             filtered_data['totalBytesSent'] = self.normalize(filtered_data['totalBytesSent'], self.obs_norm_list['totalBytesSent'])
             filtered_data['memory'] = self.normalize(filtered_data['memory'], self.obs_norm_list['memory'])
             # Calculate rewards
-            reward = (filtered_data['throughput'] / self._throughput_baseline).iat[-1]
-            self._eps_reward += reward
-            reward = torch.tensor(reward)
+            reward_scalar = floor((filtered_data['throughput'] / self._throughput_baseline).iat[-1])
+            if isna(reward_scalar):
+                print('!! NAN Reward encountered; Dumping !!')
+                print('reward_scalar', reward_scalar)
+                print('Last Row', filtered_data[self._obs_names].iloc[-1])
+                print('!! Recovering !!')
+                reward_scalar = self._recovery_reward
+            else:
+                print('Reward:', reward_scalar)
+            reward = torch.tensor(reward_scalar)
 
             next_observation = torch.as_tensor(filtered_data[self._obs_names].iloc[-1]).unsqueeze(0)
             
@@ -165,8 +179,7 @@ class InfluxEnvironment(gym.Env):
             # dones = [True if i % 3 == 0 else False for i in range(self._done_ptr, ceiling)]
             # self._done_ptr = ceiling
 
-            done = True if self._done_ptr % 3 == 0 else False
-            self._done_ptr += 1
+            done = True if self._done_ptr % 5 == 0 else False
 
             info = {} if not done else {
                 'episode': {
@@ -179,8 +192,11 @@ class InfluxEnvironment(gym.Env):
             if done:
                 self._eps_reward = 0.
 
-            if self.output:
-                self.interpret(self.output)
+            if self.output is not None:
+                print('Agent chose:', self.output)
+                self.interpret(self.output.item())
+                self._done_ptr += 1
+                self._eps_reward += reward_scalar
             print('Setting action to: ', self.current_action)
          
 
@@ -262,7 +278,7 @@ class TransferEnvironment(gym.Env):
 
 
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
 #     def cb(obs, reward, done, info):
 #         print([obs, reward, done, info])
 #         return 2
@@ -270,7 +286,9 @@ class TransferEnvironment(gym.Env):
 #     # print(env.suggest((4, 4), 9854217.))
 #     # print(env.suggest((8, 16), 1040602.))
 #     # print(env.suggest((8, 16), 10000000.))
-#     client = InfluxData()
+    client = InfluxData()
+    client.prune_df(client.query_space())
+    client.close_client()
 #     env = InfluxEnvironment(32, 32, 32, client, cb, torch.device("cuda:0"))
 #     env.fetch_and_train()
 #     print(env.suggest_parameters())
