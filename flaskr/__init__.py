@@ -47,9 +47,11 @@ def at_exit():
 atexit.register(at_exit)
 
 app = Flask(__name__)
+start = time.time()
 
 @app.route('/optimizer/create', methods=['POST'])
 def create_optimizer():
+    global start
     if request.method == 'POST':
         json_dict = request.json
         create_opt = CreateOptimizerRequest(json_dict['nodeId'], json_dict['maxConcurrency'],
@@ -57,10 +59,15 @@ def create_optimizer():
                                             json_dict['maxChunkSize'])
         print(create_opt.__str__())
         schedule = agent.create_optimizer(create_opt)
+        opt = agent.get_optimizer(create_opt.node_id)
+        start = time.time()
+        print("Start Time:", start)
         if schedule:
-            opt = agent.get_optimizer(create_opt.node_id)
             scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=15)
             scheduler.start()
+        else:
+            print('Resetting Environment...')
+            # opt.envs.reset()
         return ('', 204)
 
 
@@ -83,10 +90,16 @@ def delete_optimizer():
     if request.method == 'POST':
         jd = request.json
         delete_op = DeleteOptimizerRequest(jd['nodeId'])
+        end = time.time()
         # agent.get_optimizer(delete_op.node_id)
         print(delete_op.__str__())
+        print("^^^ JOB TIME", end - start, "SECONDS ^^^")
+        with open('time.log', 'a') as f:
+            f.write("JOB TIME:" + str(end - start) + " seconds\n")
         # print('Waiting for last entries...')
         # time.sleep(31.)
         agent.delete_optimizer(delete_op)
+        opt = agent.get_optimizer(delete_op.node_id)
+        opt.envs._done_switch = True
         schedule_thread = ScheduleTransfer().start()
     return '', 204

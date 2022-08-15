@@ -40,7 +40,14 @@ class Args:
 
         # self.file_path = '/home/didclab/Pictures/ubuntu-20.04.3-desktop-amd64(1).iso'
         # self.file_path = '/home/didclab/Pictures/moby.img'
-        self.file_path = ['/home/didclab/Pictures/willy.img', '/home/didclab/Pictures/ubuntu-20.04.3-desktop-amd64.iso']
+        self.file_path = ['/media/didclab/edr/monty.img']
+        self.env_reg = 0.0078125
+        self.starting_action = {
+            'chunkSize': 64000000.0, # set this to starting parameters
+            'concurrency': 1.0, # set this to starting parameters
+            'parallelism': 1.0, # set this to starting parameters
+            'pipelining': 1.0, # set this to starting parameters
+        }
 
         self.cuda = False
 
