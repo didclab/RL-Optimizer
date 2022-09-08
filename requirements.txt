@@ -4,3 +4,10 @@ bayesian-optimization~=1.2.0
 numpy~=1.22.4
 scipy~=1.7.3
 influxdb-client[ciso]~=1.30.0
+torch
+apscheduler
+tensorboard
+h5py
+matplotlib
+stable_baselines3
+pandas
