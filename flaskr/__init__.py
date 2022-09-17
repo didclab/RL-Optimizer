@@ -28,10 +28,13 @@ class ScheduleTransfer(threading.Thread):
     
     def run(self):
         for f in args.file_path:
-            remove(f)
+            try:
+                remove(f)
+            except:
+                pass
         time.sleep(30.)
         r = requests.post(
-            "http://pred.elrodrigues.com:8092/api/v1/transfer/start",
+            "http://192.5.86.175:8092/api/v1/transfer/start",
             json=transfer_request
         )
         print(r.status_code, r.reason)
@@ -62,12 +65,12 @@ def create_optimizer():
         opt = agent.get_optimizer(create_opt.node_id)
         start = time.time()
         print("Start Time:", start)
-        if schedule:
-            scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=15)
-            scheduler.start()
-        else:
-            print('Resetting Environment...')
-            # opt.envs.reset()
+        # if schedule:
+        #     scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=15)
+        #     scheduler.start()
+        # else:
+        #     print('Resetting Environment...')
+        #     opt.envs.reset()
         return ('', 204)
 
 
@@ -101,5 +104,7 @@ def delete_optimizer():
         agent.delete_optimizer(delete_op)
         opt = agent.get_optimizer(delete_op.node_id)
         opt.envs._done_switch = True
-        schedule_thread = ScheduleTransfer().start()
+        print("Resetting environment...")
+        opt.envs.reset()
+        # schedule_thread = ScheduleTransfer().start()
     return '', 204

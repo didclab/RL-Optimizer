@@ -2,6 +2,7 @@
 # from tkinter import N
 
 import torch
+import glob
 
 class Args:
     def __init__(self):
@@ -32,21 +33,24 @@ class Args:
         self.num_env_steps = 10e6
         self.env_name = 'Influx-v1'
         self.log_dir = '/tmp/gym/'
-        self.save_dir = '/home/didclab/Downloads/RL-Optimizer/flaskr/trained_models'
+        self.save_dir = '/home/cc/rl-optimizer/flaskr/trained_models'
         self.no_cuda = False
         self.use_proper_time_limits = False
         self.recurrent_policy = False
         self.use_linear_lr_decay = False
 
+        self.new_policy = False
+
         # self.file_path = '/home/didclab/Pictures/ubuntu-20.04.3-desktop-amd64(1).iso'
         # self.file_path = '/home/didclab/Pictures/moby.img'
-        self.file_path = ['/media/didclab/edr/monty.img']
+        # self.file_path = glob.glob("/home/cc/dest/monty-*") # ['/media/didclab/edr/monty.img']
+        self.file_path = ['/mnt/ramdisk/dest/monty-' + str(i) + '.dmg' for i in range(1, 57)]
         self.env_reg = 0.0078125
         self.starting_action = {
-            'chunkSize': 64000000.0, # set this to starting parameters
-            'concurrency': 1.0, # set this to starting parameters
-            'parallelism': 1.0, # set this to starting parameters
-            'pipelining': 1.0, # set this to starting parameters
+            'chunkSize': 68000000.0, # set this to starting parameters
+            'concurrency': 6.0, # set this to starting parameters
+            'parallelism': 6.0, # set this to starting parameters
+            'pipelining': 8.0, # set this to starting parameters
         }
 
         self.cuda = False

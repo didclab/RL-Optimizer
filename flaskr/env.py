@@ -1,24 +1,99 @@
 import gym
 import numpy as np
 import torch
-from pandas import isna
+from pandas import isna, read_csv
 
 from gym import spaces
 from influxdb_client import InfluxDBClient
 from collections import deque
+from .a2c_ppo_acktr.arguments import get_args
 
-import time
-from math import floor
+import sprout_constants as cons
+from .poisson import PoissonDistribution
 
 from torch.utils.tensorboard import SummaryWriter
+
 writer = SummaryWriter()
 
-from .a2c_ppo_acktr.arguments import get_args
 args = get_args()
 
-class InfluxData():
+
+class ParameterDistributionMap:
     def __init__(self):
-        self.space_keys = ['active_core_count', 'bytes_recv', 'bytes_sent', 'concurrency', 'dropin', 'dropout','jobId',
+        self.PD_map = {}
+        for p in range(1, cons.MAX_PARALLELISM + 1):
+            for c in range(1, cons.MAX_CONCURRENCY + 1):
+                self.PD_map[(p, c)] = PoissonDistribution(
+                    cons.MAX_THROUGHPUT,
+                    cons.NUM_DISCRETE,
+                    cons.NUM_WIENER_STEPS
+                )
+        self.recommendation = (2, 2)
+        self.total_updates = 0
+
+    def prune(self):
+        if self.total_updates < 480:
+            return
+
+        popped_keys = []
+
+        for p, c in self.PD_map:
+            dist = self.PD_map[(p, c)]
+            dist_updates = dist.num_updates
+
+            if dist_updates / self.total_updates < 0.01:
+                popped_keys.append((p, c))
+            dist.num_updates = 0
+
+        for key in popped_keys:
+            self.PD_map.pop(key, None)
+
+        self.total_updates = 0
+
+    def get_best_parameter(self):
+        return self.recommendation
+
+    def calculate_best_parameter(self):
+        best_parameter = (0, 0)
+        mean = 0
+
+        for p, c in self.PD_map:
+            cur_mean = self.PD_map[(p, c)].mean()
+            if mean < cur_mean:
+                mean = cur_mean
+                best_parameter = (p, c)
+
+        return best_parameter
+
+    def update_parameter_dist(self, p, c, n_units, time=30):
+        if p == 0 or c == 0:
+            return
+        distribution = self.PD_map.get((p, c))
+        if distribution is None:
+            distribution = PoissonDistribution(
+                cons.MAX_THROUGHPUT,
+                cons.NUM_DISCRETE,
+                cons.NUM_WIENER_STEPS
+            )
+            self.PD_map[(p, c)] = distribution
+
+        distribution.update_distribution(time, n_units)
+
+        self.recommendation = self.calculate_best_parameter()
+        self.total_updates += 1
+
+
+def simple_apply(x, dist_map):
+    p = x['parallelism']
+    c = x['concurrency']
+    n_units = (x['throughput'] * 1e-9 / 8) * 30
+    dist_map.update_parameter_dist(p, c, n_units)
+    return x
+
+
+class InfluxData:
+    def __init__(self, file_name=None):
+        self.space_keys = ['active_core_count', 'bytes_recv', 'bytes_sent', 'concurrency', 'dropin', 'dropout', 'jobId',
                            'rtt', 'latency', 'parallelism', 'pipelining', 'jobSize', 'packets_sent', 'packets_recv',
                            'errin', 'errout', 'totalBytesSent', 'memory', 'throughput', 'avgJobSize', 'freeMemory']
 
@@ -26,12 +101,14 @@ class InfluxData():
         self.query_api = self.client.query_api()
 
         self.p = {
-            '_APP_NAME': "onedatashare@gmail.com-didclab-pred",
+            '_APP_NAME': "elvisdav@buffalo.edu-didclab-elvis-uc",
             '_TIME': '-2m',
         }
 
+        self.input_file = file_name
+
     def query_space(self):
-        q='''from(bucket: "onedatashare@gmail.com")
+        q = '''from(bucket: "elvisdav@buffalo.edu")
   |> range(start: -5m)
   |> fill(usePrevious: true)
   |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value") 
@@ -49,8 +126,19 @@ class InfluxData():
         # print(df2.tail())
         return df2
 
+    def read_file(self):
+        """
+        Reads CSV Influx file in working directory
+        :return: Pandas dataframe
+        """
+        data_frame = None
+        if self.input_file is not None:
+            data_frame = read_csv(self.input_file)
+        return data_frame
+
     def close_client(self):
         self.client.close()
+
 
 class InfluxEnvironment(gym.Env):
     def __init__(self, max_cc, max_p, max_pp, influx_client, agent_train_callback, device):
@@ -66,7 +154,7 @@ class InfluxEnvironment(gym.Env):
         self.possible_parameters = [i * 1. for i in range(1, 31)]
         self._parameter_baseline = 10.
         # CC, P for now
-        self.action_space = spaces.Discrete(n=3)
+        self.action_space = spaces.Discrete(n=4)
 
         self._p_names = ['concurrency', 'parallelism', 'pipelining', 'chunkSize']
         self._running_obs = ['freeMemory', 'rtt', 'jobSize', 'avgJobSize', 'throughput']
@@ -74,7 +162,7 @@ class InfluxEnvironment(gym.Env):
         # CC, P, PP, totalBytesSent, memory
         self.observation_space = spaces.Box(low=-4., high=4., dtype=np.float32, shape=(len(self._obs_names),))
 
-        self._throughput_baseline = 1e8 # 1e6
+        self._throughput_baseline = 1e8  # 1e6
         self.throughput_list = deque([0. for _ in range(5)], maxlen=5)
 
         self.obs_norm_list = {name: deque([0.], maxlen=100) for name in self._obs_names}
@@ -84,7 +172,13 @@ class InfluxEnvironment(gym.Env):
         self._done_ptr = 1
         self._done_switch = False
 
-        self.current_action = args.starting_action
+        self.parameter_dist_map = ParameterDistributionMap()
+        self.best_start = self.parameter_dist_map.get_best_parameter()
+
+        self.current_action = args.starting_action.copy()
+        self.current_action['parallelism'] = self.best_start[0]
+        self.current_action['concurrency'] = self.best_start[1]
+        self.past_action = self.current_action.copy()
         self._prev_throughput = 0.
 
         self._device = device
@@ -92,7 +186,7 @@ class InfluxEnvironment(gym.Env):
         self._eps_reward = 0.
 
         self.bootstrapping = True
-        self.output = None
+        self.output_p = self.output_c = None
 
         self._recovery_reward = 3.
         self.rewards = deque([0.], maxlen=100)
@@ -107,13 +201,13 @@ class InfluxEnvironment(gym.Env):
 
     def parse_action(self, net_output):
         # return (torch.div(net_output, 6, rounding_mode='floor'), net_output % 6)
-        return (net_output // 6, net_output % 6)
+        return net_output // 6, net_output % 6
 
     def encode_actions(self, row):
         try:
             # action =  (self.possible_parameters.index(row['parallelism']) * 6) + \
             #     self.possible_parameters.index(row['concurrency'])
-            action = self.possible_parameters.index(row['parallelism'])
+            action = self.possible_parameters.index(row['concurrency'])
         except:
             action = -1
         return action
@@ -134,6 +228,8 @@ class InfluxEnvironment(gym.Env):
         ]
 
         self.current_action = args.starting_action.copy()
+        self.current_action['parallelism'] = self.best_start[0]
+        self.current_action['concurrency'] = self.best_start[1]
 
         self._prev_throughput = 0.
 
@@ -142,111 +238,63 @@ class InfluxEnvironment(gym.Env):
     def suggest_parameters(self):
         print(self.current_action)
         return self.current_action
-    
-    def interpret(self, action):
+
+    def interpret(self, action_p, action_c):
         # cc_index, p_index = self.parse_action(action)
 
         # self.current_action['concurrency'] = 2. # self.possible_parameters[cc_index]
+        cur_p = self.current_action['concurrency']
+        num_choices = len(self.possible_parameters)
+        if action_c == 1 and cur_p > 1.:
+            p_index = self.possible_parameters.index(cur_p)
+            self.current_action['concurrency'] = self.possible_parameters[p_index - 1]
+        elif action_c == 2 and cur_p < 30.:
+            p_index = self.possible_parameters.index(cur_p)
+            self.current_action['concurrency'] = self.possible_parameters[min(p_index + 2, num_choices - 1)]
+        elif action_c == 3 and cur_p < 30.:
+            p_index = self.possible_parameters.index(cur_p)
+            self.current_action['concurrency'] = self.possible_parameters[min(p_index + 6, num_choices - 1)]
+
         cur_p = self.current_action['parallelism']
         num_choices = len(self.possible_parameters)
-        if action == 1 and cur_p > 1.:
+
+        if action_p == 1 and cur_p > 1.:
             p_index = self.possible_parameters.index(cur_p)
             self.current_action['parallelism'] = self.possible_parameters[p_index - 1]
-        elif action == 2 and cur_p < 30.:
+        elif action_p == 2 and cur_p < 30.:
             p_index = self.possible_parameters.index(cur_p)
             self.current_action['parallelism'] = self.possible_parameters[min(p_index + 2, num_choices - 1)]
-        # self.current_action['parallelism'] = self.possible_parameters[p_index]
+        elif action_p == 3 and cur_p < 30.:
+            p_index = self.possible_parameters.index(cur_p)
+            self.current_action['parallelism'] = self.possible_parameters[min(p_index + 6, num_choices - 1)]
 
         return self.current_action
-    
-    def input_step(self, input_req):
-        # if self.bootstrapping:
-        #     print('Bootstrapping...')
-        #     self.bootstrapping = False
-        #     return
-        
-        data = self.influx_client.prune_df(self.influx_client.query_space())
-    
-        try:
-            reward_scalar = (input_req.throughput / self._throughput_baseline)
-            self._recovery_reward = reward_scalar
-        except:
-            print('!! NAN Reward encountered; Dumping !!')
-            print('!! Recovering !!')
-            reward_scalar = self._recovery_reward
-        
-        reward_scalar = floor(reward_scalar)
-            
-        self._cur_reward += reward_scalar
-        print('Intra-step Reward:', self._cur_reward)
-        
-        filtered_data = data[(data['jobId'] > self._data_keys['jobId'])].copy()
-        # filtered_data = data.copy()
-        encoded_action = -1 if filtered_data.empty else self.encode_actions(filtered_data.iloc[-1])
 
-        if not filtered_data.empty:
-            self.rewards.append(self._cur_reward)
-            # self._cur_reward = self.normalize(self._cur_reward, self.rewards)
-            self._eps_reward += self._cur_reward
-
-            print('New Job, Step Reward:', self._cur_reward, 'Eps Reward:', self._eps_reward)
-
-            # Register new keys
-            self._data_keys['jobId'] = filtered_data['jobId'].iat[-1]
-            self._data_keys['bytes_sent'] = filtered_data['bytes_sent'].iat[-1]
-            # Normalize data
-            filtered_data['concurrency'] = self.normalize(input_req.concurrency, self.possible_parameters)
-            # filtered_data['parallelism'] = self.normalize(filtered_data['parallelism'], self.possible_parameters)
-            filtered_data['pipelining'] = self.normalize(input_req.pipelining, self.possible_parameters)
-
-            for o in self._running_obs:
-                self.obs_norm_list[o] += list(filtered_data[o] / self._throughput_baseline)
-                filtered_data[o] = self.normalize(filtered_data[o], self.obs_norm_list[o])
-            
-            # Calculate rewards
-            reward = torch.tensor(self._cur_reward)
-
-            next_observation = torch.as_tensor(filtered_data[self._obs_names].iloc[-1]).unsqueeze(0)
-
-            done = True if self._done_ptr % 3 == 0 else False
-
-            info = {} if not done else {
-                'episode': {
-                    'r': self._eps_reward
-                }
-            }
-
-            # Call agent
-            self.output = self.train_callback(next_observation, reward, done, info, encoded_action)
-
-            self._cur_reward = 0.
-            if done:
-                self._eps_reward = 0.
-
-            if self.output is not None:
-                print('Agent chose:', self.output)
-                self.interpret(self.output.item())
-                self._done_ptr += 1
-
-            print('Setting action to: ', self.current_action)
-    
     def fetch_and_train(self):
         # if self.bootstrapping:
         #     print('Bootstrapping...')
         #     self.bootstrapping = False
         #     return
-        
+
         data = self.influx_client.prune_df(self.influx_client.query_space())
-        
+
         filtered_data = data[(data['jobId'] > self._data_keys['jobId']) |
-            ((data['jobId'] == self._data_keys['jobId']) & (data['bytes_sent'] > self._data_keys['bytes_sent']) & 
-                (data['parallelism'] > 0))].copy()
+                             ((data['jobId'] == self._data_keys['jobId']) & (
+                                     data['bytes_sent'] > self._data_keys['bytes_sent']) &
+                              (data['concurrency'] > 0))].copy()
         # filtered_data = data[(data['jobId'] > self._data_keys['jobId'])].copy()
         # filtered_data = data.copy()
         encoded_action = -1 if filtered_data.empty else self.encode_actions(filtered_data.iloc[-1])
 
-        if not filtered_data.empty and (not self.output or (filtered_data['parallelism'].iat[-1] == self.current_action['parallelism'])):
-            print('Next Event Available for action', self.output)
+        if not filtered_data.empty and (
+                not self.output_c or (filtered_data['concurrency'].iat[-1] == self.current_action['concurrency'])):
+            print('Next Event Available for action', self.output_p, self.output_c)
+
+            # Update Posterior distribution
+            live_data = filtered_data[(filtered_data['parallelism'] > 0.) & (filtered_data['throughput'] > 0.)].filter(
+                items=['parallelism', 'concurrency', 'throughput']
+            )
+            live_data.apply(lambda x: simple_apply(x, self.parameter_dist_map), axis=1)
 
             # Register new keys
             self._data_keys['jobId'] = filtered_data['jobId'].iat[-1]
@@ -262,20 +310,33 @@ class InfluxEnvironment(gym.Env):
                 # reward_scalar = self.normalize(self._recovery_reward, self.rewards)
                 reward_scaled = self._recovery_reward
                 filtered_data = filtered_data.assign(throughput=3e8)
-            
+
             self.throughput_list.append(reward_scaled)
-            if not self._done_switch and self.output != None and self.output.item() == 1 and self.current_action['parallelism'] == 1.:
-                reward_scalar = -1
+            if not self._done_switch and self.output_c != None and self.output_c.item() == 1 and self.past_action[
+                'concurrency'] == 1.:
+                reward_scalar_c = -1
             # elif reward_scaled >= np.mean(self.throughput_list):
             #     reward_scalar = 1.
             # else:
             #     reward_scalar = 0.
             else:
-                reward_scalar = np.round(np.mean(self.throughput_list), 1)
-            
-            reward_scalar += (self.reg * filtered_data['parallelism'].iat[-1])
-            print('Reward:', reward_scalar)
-            
+                reward_scalar_c = np.round(np.mean(self.throughput_list), 1)
+
+            if not self._done_switch and self.output_p != None and self.output_p.item() == 1 and self.past_action[
+                'parallelism'] == 1.:
+                reward_scalar_p = -1
+            # elif reward_scaled >= np.mean(self.throughput_list):
+            #     reward_scalar = 1.
+            # else:
+            #     reward_scalar = 0.
+            else:
+                reward_scalar_p = np.round(np.mean(self.throughput_list), 1)
+
+            reward_scalar_c += (self.reg * filtered_data['concurrency'].iat[-1])
+            reward_scalar_p += (self.reg * filtered_data['parallelism'].iat[-1])
+
+            print('Reward:', reward_scalar_p, reward_scalar_c)
+
             self._prev_throughput = reward_scaled
             # self.throughput_list.append(self._prev_throughput)
 
@@ -291,13 +352,14 @@ class InfluxEnvironment(gym.Env):
                 else:
                     self.obs_norm_list[o] += list(filtered_data[o])
                     filtered_data[o] = self.normalize(filtered_data[o], self.obs_norm_list[o])
-            
+
             # Calculate rewards
-            
-            reward = torch.tensor(reward_scalar)
+
+            reward_p = torch.tensor(reward_scalar_p)
+            reward_c = torch.tensor(reward_scalar_c)
 
             next_observation = torch.as_tensor(filtered_data[self._obs_names].iloc[-1]).unsqueeze(0)
-            
+
             # num_rows = filtered_data.shape[0]
             # ceiling = self._done_ptr + num_rows
             # dones = [True if i % 3 == 0 else False for i in range(self._done_ptr, ceiling)]
@@ -318,58 +380,15 @@ class InfluxEnvironment(gym.Env):
                 next_observation = self.reset()
 
             # Call agent
-            self.output = self.train_callback(next_observation, reward, done, info, encoded_action)
+            self.output_p, self.output_c = self.train_callback(next_observation, (reward_p, reward_c), done, info,
+                                                               encoded_action)
             if done:
                 self._eps_reward = 0.
 
-            if self.output is not None:
-                print('Agent chose:', self.output)
-                self.interpret(self.output.item())
+            if self.output_p is not None:
+                print('Agent chose:', (self.output_p, self.output_c))
+                self.past_action = self.current_action.copy()
+                self.interpret(self.output_p.item(), self.output_c.item())
                 self._done_ptr += 1
-                self._eps_reward += reward_scalar
+                self._eps_reward += np.mean((reward_scalar_p, reward_scalar_c))
             print('Setting action to: ', self.current_action)
-
-# if __name__ == "__main__":
-#     def cb(obs, reward, done, info):
-#         print([obs, reward, done, info])
-#         return 2
-#     # env = TransferEnvironment(32, 32 ,32, cb)
-#     # print(env.suggest((4, 4), 9854217.))
-#     # print(env.suggest((8, 16), 1040602.))
-# #     # print(env.suggest((8, 16), 10000000.))
-#     client = InfluxData()
-#     client.prune_df(client.query_space())
-#     client.close_client()
-#     env = InfluxEnvironment(32, 32, 32, client, cb, torch.device("cuda:0"))
-#     env.fetch_and_train()
-#     print(env.suggest_parameters())
-    
-#     print('Sleeping...')
-#     time.sleep(30.)
-#     print('Awake')
-#     env.fetch_and_train()
-#     print(env.suggest_parameters())
-
-#     print('Sleeping...')
-#     time.sleep(30.)
-#     print('Awake')
-#     env.fetch_and_train()
-#     print(env.suggest_parameters())
-
-#     print('Sleeping...')
-#     time.sleep(30.)
-#     print('Awake')
-#     env.fetch_and_train()
-#     print(env.suggest_parameters())
-#     # data = client.prune_df(client.query_space())
-#     # print(len(data['memory']))
-    
-#     # filter = data[data['memory'] > 83532600].copy()
-#     # print(filter)
-#     # print(filter.empty)
-#     # filter['memory'] = (filter['memory'] - 83532600) / np.std(filter['memory'])
-#     # print(filter.shape)
-#     # for i in range(10):
-#     #     print(filter.iloc[i])
-#     # print(filter['memory'].iat[-1])
-    
