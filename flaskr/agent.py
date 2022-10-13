@@ -29,6 +29,27 @@ torch.set_num_threads(1)
 device = torch.device("cuda:0" if args.cuda else "cpu")
 
 
+def get_critic_gradient(base, rollouts):
+    obs_shape = rollouts.obs.size()[2:]
+    action_shape = rollouts.actions.size()[-1]
+    num_steps, num_processes, _ = rollouts.rewards.size()
+    actor_critic = base.actor_critic
+
+    values, action_log_probs, dist_entropy, _ = actor_critic.evaluate_actions(
+        rollouts.obs[:-1].view(-1, *obs_shape),
+        rollouts.recurrent_hidden_states[0].view(
+            -1, actor_critic.recurrent_hidden_state_size),
+        rollouts.masks[:-1].view(-1, 1),
+        rollouts.actions.view(-1, action_shape))
+
+    values = values.view(num_steps, num_processes, 1)
+    action_log_probs = action_log_probs.view(num_steps, num_processes, 1)
+
+    advantages = rollouts.returns[:-1] - values
+    value_loss = advantages.pow(2).mean()
+
+    return value_loss, action_log_probs, dist_entropy, advantages
+
 class Optimizer(object):
     def train(self, next_obs, reward, done, info, encoded_action):
 
@@ -70,8 +91,38 @@ class Optimizer(object):
             self.rollouts_concurrency.compute_returns(next_value_c, args.use_gae, args.gamma,
                                                       args.gae_lambda, args.use_proper_time_limits)
 
-            value_loss, action_loss, dist_entropy = self.agent_parallelism.update(self.rollouts_parallelism)
-            _, _, _ = self.agent_concurrency.update(self.rollouts_concurrency)
+            if args.enable_vdac:
+                """
+                FIRST HALF OF UPDATE (ADAM-CRITIC)
+                """
+
+                # Evaluate parallelism
+                p_value_loss, p_action_log_probs, p_dist_entropy, p_adv = get_critic_gradient(self.agent_parallelism_v,
+                                                                                       self.rollouts_parallelism)
+                # Evaluate concurrency
+                c_value_loss, c_action_log_probs, c_dist_entropy, c_adv = get_critic_gradient(self.agent_concurrency_v,
+                                                                                       self.rollouts_concurrency)
+
+                # Combine losses and back-propagate
+                self.optimizer_critic.zero_grad()
+
+                ((p_value_loss + c_value_loss) * args.value_loss_coef).backward()
+                torch.nn.utils.clip_grad_norm_(self.module_list.parameters(), args.max_grad_norm)
+
+                self.optimizer_critic.step()
+                self.scheduler.step()
+
+                """
+                SECOND HALF OF UPDATE (ADAM-ACTOR)
+                """
+                value_loss, action_loss, dist_entropy = self.agent_parallelism_v.vdac_update(p_value_loss,
+                                                                                           p_action_log_probs,
+                                                                                           p_dist_entropy, p_adv)
+                _, _, _ = self.agent_concurrency_v.vdac_update(p_value_loss, p_action_log_probs, p_dist_entropy, p_adv)
+
+            else:
+                value_loss, action_loss, dist_entropy = self.agent_parallelism.update(self.rollouts_parallelism)
+                _, _, _ = self.agent_concurrency.update(self.rollouts_concurrency)
 
             self.rollouts_parallelism.after_update()
             self.rollouts_concurrency.after_update()
@@ -177,7 +228,7 @@ class Optimizer(object):
             self.actor_critic[i].to(device)
 
         if args.enable_vdac:
-            self.agent_parallelism = algo.VDAC_SUM(
+            self.agent_parallelism_v = algo.VDAC_SUM(
                 self.actor_critic[0],
                 args.value_loss_coef,
                 args.entropy_coef,
@@ -186,7 +237,7 @@ class Optimizer(object):
                 alpha=args.alpha,
                 max_grad_norm=args.max_grad_norm
             )
-            self.agent_concurrency = algo.VDAC_SUM(
+            self.agent_concurrency_v = algo.VDAC_SUM(
                 self.actor_critic[1],
                 args.value_loss_coef,
                 args.entropy_coef,

@@ -4,9 +4,10 @@
 import torch
 import glob
 
+
 class Args:
     def __init__(self):
-        self.algo = 'a2c'
+        self.algo = 'vdac'
         self.gail = False
         self.gail_experts_dir = './gail_experts'
         self.gail_batch_size = 128
@@ -48,17 +49,16 @@ class Args:
         self.file_path = ['/mnt/ramdisk/dest/monty-' + str(i) + '.dmg' for i in range(1, 33)]
         self.env_reg = 0.0078125
         self.starting_action = {
-            'chunkSize': 68000000.0, # set this to starting parameters
-            'concurrency': 6.0, # set this to starting parameters
-            'parallelism': 6.0, # set this to starting parameters
-            'pipelining': 8.0, # set this to starting parameters
+            'chunkSize': 68000000.0,  # set this to starting parameters
+            'concurrency': 6.0,  # set this to starting parameters
+            'parallelism': 6.0,  # set this to starting parameters
+            'pipelining': 8.0,  # set this to starting parameters
         }
 
         self.cuda = False
 
 
 def get_args():
-    
     args = Args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
