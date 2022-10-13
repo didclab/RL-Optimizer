@@ -8,7 +8,7 @@ from influxdb_client import InfluxDBClient
 from collections import deque
 from .a2c_ppo_acktr.arguments import get_args
 
-import sprout_constants as cons
+from .sprout_constants import *
 from .poisson import PoissonDistribution
 
 from torch.utils.tensorboard import SummaryWriter
@@ -21,12 +21,12 @@ args = get_args()
 class ParameterDistributionMap:
     def __init__(self):
         self.PD_map = {}
-        for p in range(1, cons.MAX_PARALLELISM + 1):
-            for c in range(1, cons.MAX_CONCURRENCY + 1):
+        for p in range(1, MAX_PARALLELISM + 1):
+            for c in range(1, MAX_CONCURRENCY + 1):
                 self.PD_map[(p, c)] = PoissonDistribution(
-                    cons.MAX_THROUGHPUT,
-                    cons.NUM_DISCRETE,
-                    cons.NUM_WIENER_STEPS
+                    MAX_THROUGHPUT,
+                    NUM_DISCRETE,
+                    NUM_WIENER_STEPS
                 )
         self.recommendation = (2, 2)
         self.total_updates = 0
@@ -71,9 +71,9 @@ class ParameterDistributionMap:
         distribution = self.PD_map.get((p, c))
         if distribution is None:
             distribution = PoissonDistribution(
-                cons.MAX_THROUGHPUT,
-                cons.NUM_DISCRETE,
-                cons.NUM_WIENER_STEPS
+                MAX_THROUGHPUT,
+                NUM_DISCRETE,
+                NUM_WIENER_STEPS
             )
             self.PD_map[(p, c)] = distribution
 
@@ -86,7 +86,7 @@ class ParameterDistributionMap:
 def simple_apply(x, dist_map):
     p = x['parallelism']
     c = x['concurrency']
-    n_units = (x['throughput'] * 1e-9 / 8) * 30
+    n_units = (x['throughput'] * 1e-9 / 32) * 30
     dist_map.update_parameter_dist(p, c, n_units)
     return x
 
@@ -154,7 +154,7 @@ class InfluxEnvironment(gym.Env):
         self.possible_parameters = [i * 1. for i in range(1, 31)]
         self._parameter_baseline = 10.
         # CC, P for now
-        self.action_space = spaces.Discrete(n=4)
+        self.action_space = spaces.Discrete(n=3)
 
         self._p_names = ['concurrency', 'parallelism', 'pipelining', 'chunkSize']
         self._running_obs = ['freeMemory', 'rtt', 'jobSize', 'avgJobSize', 'throughput']
@@ -215,21 +215,25 @@ class InfluxEnvironment(gym.Env):
     def normalize(self, value, history):
         return (value - np.mean(history)) / np.std(history)
 
+    def set_best_action(self, p, c):
+        self.best_start = (p, c)
+
     def reset(self):
+        self.current_action = args.starting_action.copy()
+        self.current_action['parallelism'] = self.best_start[0]
+        self.current_action['concurrency'] = self.best_start[1]
+        # print(self.current_action, self.best_start)
+
         vect = [
-            self.normalize(args.starting_action['concurrency'], self.possible_parameters),
-            self.normalize(args.starting_action['pipelining'], self.possible_parameters),
-            self.normalize(args.starting_action['parallelism'], self.possible_parameters),
+            self.normalize(self.current_action['concurrency'], self.possible_parameters),
+            self.normalize(self.current_action['pipelining'], self.possible_parameters),
+            self.normalize(self.current_action['parallelism'], self.possible_parameters),
             0.,
             0.,
             0.,
             0.,
             0.
         ]
-
-        self.current_action = args.starting_action.copy()
-        self.current_action['parallelism'] = self.best_start[0]
-        self.current_action['concurrency'] = self.best_start[1]
 
         self._prev_throughput = 0.
 
@@ -250,7 +254,7 @@ class InfluxEnvironment(gym.Env):
             self.current_action['concurrency'] = self.possible_parameters[p_index - 1]
         elif action_c == 2 and cur_p < 30.:
             p_index = self.possible_parameters.index(cur_p)
-            self.current_action['concurrency'] = self.possible_parameters[min(p_index + 2, num_choices - 1)]
+            self.current_action['concurrency'] = self.possible_parameters[min(p_index + 1, num_choices - 1)]
         elif action_c == 3 and cur_p < 30.:
             p_index = self.possible_parameters.index(cur_p)
             self.current_action['concurrency'] = self.possible_parameters[min(p_index + 6, num_choices - 1)]
@@ -263,7 +267,7 @@ class InfluxEnvironment(gym.Env):
             self.current_action['parallelism'] = self.possible_parameters[p_index - 1]
         elif action_p == 2 and cur_p < 30.:
             p_index = self.possible_parameters.index(cur_p)
-            self.current_action['parallelism'] = self.possible_parameters[min(p_index + 2, num_choices - 1)]
+            self.current_action['parallelism'] = self.possible_parameters[min(p_index + 1, num_choices - 1)]
         elif action_p == 3 and cur_p < 30.:
             p_index = self.possible_parameters.index(cur_p)
             self.current_action['parallelism'] = self.possible_parameters[min(p_index + 6, num_choices - 1)]
@@ -290,11 +294,10 @@ class InfluxEnvironment(gym.Env):
                 not self.output_c or (filtered_data['concurrency'].iat[-1] == self.current_action['concurrency'])):
             print('Next Event Available for action', self.output_p, self.output_c)
 
-            # Update Posterior distribution
-            live_data = filtered_data[(filtered_data['parallelism'] > 0.) & (filtered_data['throughput'] > 0.)].filter(
-                items=['parallelism', 'concurrency', 'throughput']
-            )
-            live_data.apply(lambda x: simple_apply(x, self.parameter_dist_map), axis=1)
+            # Update Posterior distribution live_data = filtered_data[(filtered_data['parallelism'] > 0.) & (
+            # filtered_data['throughput'] > 0.)].filter( items=['parallelism', 'concurrency', 'throughput'] )
+            # live_data.apply(lambda x: simple_apply(x, self.parameter_dist_map), axis=1) if not self._done_switch:
+            # self.best_start = self.parameter_dist_map.get_best_parameter()
 
             # Register new keys
             self._data_keys['jobId'] = filtered_data['jobId'].iat[-1]
@@ -309,10 +312,10 @@ class InfluxEnvironment(gym.Env):
                 print('!! Recovering !!')
                 # reward_scalar = self.normalize(self._recovery_reward, self.rewards)
                 reward_scaled = self._recovery_reward
-                filtered_data = filtered_data.assign(throughput=3e8)
+                filtered_data = filtered_data.assign(throughput=2e9)
 
             self.throughput_list.append(reward_scaled)
-            if not self._done_switch and self.output_c != None and self.output_c.item() == 1 and self.past_action[
+            if not self._done_switch and self.output_c is not None and self.output_c.item() == 1 and self.past_action[
                 'concurrency'] == 1.:
                 reward_scalar_c = -1
             # elif reward_scaled >= np.mean(self.throughput_list):
@@ -320,9 +323,14 @@ class InfluxEnvironment(gym.Env):
             # else:
             #     reward_scalar = 0.
             else:
-                reward_scalar_c = np.round(np.mean(self.throughput_list), 1)
+                reward_scalar_c = np.mean(self.throughput_list)
+                if filtered_data['concurrency'].iat[-1] > 1:
+                    reward_scalar_c *= (1 - (1 / filtered_data['concurrency'].iat[-1]))
+                else:
+                    reward_scalar_c *= 0.3
+                reward_scalar_c = np.round(reward_scalar_c, 1)
 
-            if not self._done_switch and self.output_p != None and self.output_p.item() == 1 and self.past_action[
+            if not self._done_switch and self.output_p is not None and self.output_p.item() == 1 and self.past_action[
                 'parallelism'] == 1.:
                 reward_scalar_p = -1
             # elif reward_scaled >= np.mean(self.throughput_list):
@@ -330,10 +338,15 @@ class InfluxEnvironment(gym.Env):
             # else:
             #     reward_scalar = 0.
             else:
-                reward_scalar_p = np.round(np.mean(self.throughput_list), 1)
+                reward_scalar_p = np.mean(self.throughput_list)
+                if filtered_data['parallelism'].iat[-1] > 1:
+                    reward_scalar_p *= (1 - (1 / filtered_data['parallelism'].iat[-1]))
+                else:
+                    reward_scalar_p *= 0.3
+                reward_scalar_p = np.round(reward_scalar_p, 1)
 
-            reward_scalar_c += (self.reg * filtered_data['concurrency'].iat[-1])
-            reward_scalar_p += (self.reg * filtered_data['parallelism'].iat[-1])
+            # reward_scalar_c += (self.reg * filtered_data['concurrency'].iat[-1])
+            # reward_scalar_p += (self.reg * filtered_data['parallelism'].iat[-1])
 
             print('Reward:', reward_scalar_p, reward_scalar_c)
 
@@ -378,6 +391,7 @@ class InfluxEnvironment(gym.Env):
                 writer.add_scalar("Train/episode_reward", self._eps_reward, self.episode_count)
                 self.episode_count += 1
                 next_observation = self.reset()
+                # print('Environment Reset:', self.current_action)
 
             # Call agent
             self.output_p, self.output_c = self.train_callback(next_observation, (reward_p, reward_c), done, info,

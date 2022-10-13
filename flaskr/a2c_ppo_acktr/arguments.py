@@ -39,12 +39,13 @@ class Args:
         self.recurrent_policy = False
         self.use_linear_lr_decay = False
 
-        self.new_policy = False
+        self.new_policy = True
+        self.enable_vdac = True
 
         # self.file_path = '/home/didclab/Pictures/ubuntu-20.04.3-desktop-amd64(1).iso'
         # self.file_path = '/home/didclab/Pictures/moby.img'
         # self.file_path = glob.glob("/home/cc/dest/monty-*") # ['/media/didclab/edr/monty.img']
-        self.file_path = ['/mnt/ramdisk/dest/monty-' + str(i) + '.dmg' for i in range(1, 57)]
+        self.file_path = ['/mnt/ramdisk/dest/monty-' + str(i) + '.dmg' for i in range(1, 33)]
         self.env_reg = 0.0078125
         self.starting_action = {
             'chunkSize': 68000000.0, # set this to starting parameters

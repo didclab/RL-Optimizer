@@ -1,6 +1,7 @@
 import numpy as np
-from math import sqrt, floor
+from math import sqrt, ceil
 from scipy.stats import norm
+from .sprout_constants import *
 
 
 # https://scipy-cookbook.readthedocs.io/items/BrownianMotion.html
@@ -60,11 +61,11 @@ class PoissonDistribution:
         :param time: (fixed) elapsed time in seconds
         :param n_units: number of "units" processed in elapsed time. Unit is defined by constants.py e.g. bit, MByte
         """
-        n_units = floor(n_units)
+        f_units = min(ceil(n_units), ceil(MAX_THROUGHPUT * time))
         if n_units == 0:
             return
         rate_time = time * self.inputs
-        intermediates = self.distribution * np.power(rate_time, n_units) \
-            / np.math.factorial(n_units)
+        test = np.power(rate_time, n_units)
+        intermediates = (self.distribution / np.math.factorial(f_units)) * test
         intermediates *= np.exp(-rate_time)
         self.distribution = intermediates / np.sum(intermediates)

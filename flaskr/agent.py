@@ -1,22 +1,14 @@
-import copy
-import glob
 import os
 import time
 
-import torch
-from .env import *
-
 from .a2c_ppo_acktr import algo, utils
-from .a2c_ppo_acktr.algo import gail
 from .a2c_ppo_acktr.arguments import get_args
-from .a2c_ppo_acktr.envs import make_vec_envs
 from .a2c_ppo_acktr.model import Policy
 from .a2c_ppo_acktr.storage import RolloutStorage
-from .evaluation import evaluate
-
 from .classes import CreateOptimizerRequest
 from .classes import DeleteOptimizerRequest
 from .classes import InputOptimizerRequest
+from .env import *
 
 optimizer_map = {}
 args = get_args()
@@ -112,7 +104,8 @@ class Optimizer(object):
 
         try:
             if done:
-                obs = self.envs.reset()
+                obs = self.reset_obs
+                # print('Agent: Episode done. Resetting:', obs)
                 self.rollouts_parallelism.obs[self.cur_step].copy_(obs)
                 self.rollouts_concurrency.obs[self.cur_step].copy_(obs)
                 self.rollouts_parallelism.masks[self.cur_step].copy_(torch.FloatTensor([[1.0]]))
@@ -183,24 +176,44 @@ class Optimizer(object):
         for i in range(2):
             self.actor_critic[i].to(device)
 
-        self.agent_parallelism = algo.A2C_ACKTR(
-            self.actor_critic[0],
-            args.value_loss_coef,
-            args.entropy_coef,
-            lr=args.lr,
-            eps=args.eps,
-            alpha=args.alpha,
-            max_grad_norm=args.max_grad_norm
-        )
-        self.agent_concurrency = algo.A2C_ACKTR(
-            self.actor_critic[1],
-            args.value_loss_coef,
-            args.entropy_coef,
-            lr=args.lr,
-            eps=args.eps,
-            alpha=args.alpha,
-            max_grad_norm=args.max_grad_norm
-        )
+        if args.enable_vdac:
+            self.agent_parallelism = algo.VDAC_SUM(
+                self.actor_critic[0],
+                args.value_loss_coef,
+                args.entropy_coef,
+                lr=args.lr,
+                eps=args.eps,
+                alpha=args.alpha,
+                max_grad_norm=args.max_grad_norm
+            )
+            self.agent_concurrency = algo.VDAC_SUM(
+                self.actor_critic[1],
+                args.value_loss_coef,
+                args.entropy_coef,
+                lr=args.lr,
+                eps=args.eps,
+                alpha=args.alpha,
+                max_grad_norm=args.max_grad_norm
+            )
+        else:
+            self.agent_parallelism = algo.A2C_ACKTR(
+                self.actor_critic[0],
+                args.value_loss_coef,
+                args.entropy_coef,
+                lr=args.lr,
+                eps=args.eps,
+                alpha=args.alpha,
+                max_grad_norm=args.max_grad_norm
+            )
+            self.agent_concurrency = algo.A2C_ACKTR(
+                self.actor_critic[1],
+                args.value_loss_coef,
+                args.entropy_coef,
+                lr=args.lr,
+                eps=args.eps,
+                alpha=args.alpha,
+                max_grad_norm=args.max_grad_norm
+            )
 
         self.rollouts_parallelism = RolloutStorage(args.num_steps, 1,
                                                    self.envs.observation_space.shape, self.envs.action_space,
@@ -234,7 +247,14 @@ class Optimizer(object):
         self.action_clone_p = self.action_p.clone().detach()
         self.action_clone_c = self.action_c.clone().detach()
 
+        if args.enable_vdac:
+            self.module_list = torch.nn.ModuleList(self.actor_critic)
+            self.optimizer_critic = torch.optim.Adam(self.module_list.parameters(), lr=0.001, eps=args.eps)
+
+            self.scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer_critic, base_lr=0.0001, max_lr=0.001)
+
         self.envs.interpret(self.action_p.item(), self.action_c.item())
+        self.reset_obs = None
 
 
 def get_optimizer(node_id):
