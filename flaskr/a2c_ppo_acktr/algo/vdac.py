@@ -33,7 +33,7 @@ class VDAC_SUM:
 
         self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=0.0001, max_lr=lr)
 
-    def vdac_update(self, value_loss, action_log_probs, dist_entropy, advantages):
+    def vdac_update(self, action_log_probs, dist_entropy, advantages):
         action_loss = -(advantages.detach() * action_log_probs).mean()
 
         # if self.acktr and self.optimizer.steps % self.optimizer.Ts == 0:
@@ -63,4 +63,4 @@ class VDAC_SUM:
         self.optimizer.step()
         self.scheduler.step()
 
-        return value_loss.item(), action_loss.item(), dist_entropy.item()
+        return action_loss.item(), dist_entropy.item()

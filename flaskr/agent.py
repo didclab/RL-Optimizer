@@ -29,26 +29,51 @@ torch.set_num_threads(1)
 device = torch.device("cuda:0" if args.cuda else "cpu")
 
 
-def get_critic_gradient(base, rollouts):
-    obs_shape = rollouts.obs.size()[2:]
-    action_shape = rollouts.actions.size()[-1]
-    num_steps, num_processes, _ = rollouts.rewards.size()
-    actor_critic = base.actor_critic
+def get_joint_gradient(bases, rollouts_arr):
+    action_log_probs_arr = []
+    dist_entropy_arr = []
+    advantages_arr = []
 
-    values, action_log_probs, dist_entropy, _ = actor_critic.evaluate_actions(
-        rollouts.obs[:-1].view(-1, *obs_shape),
-        rollouts.recurrent_hidden_states[0].view(
-            -1, actor_critic.recurrent_hidden_state_size),
-        rollouts.masks[:-1].view(-1, 1),
-        rollouts.actions.view(-1, action_shape))
+    total_returns = None
+    total_values = None
 
-    values = values.view(num_steps, num_processes, 1)
-    action_log_probs = action_log_probs.view(num_steps, num_processes, 1)
+    for i in range(len(bases)):
+        base = bases[i]
+        rollouts = rollouts_arr[i]
 
-    advantages = rollouts.returns[:-1] - values
-    value_loss = advantages.pow(2).mean()
+        obs_shape = rollouts.obs.size()[2:]
+        action_shape = rollouts.actions.size()[-1]
+        num_steps, num_processes, _ = rollouts.rewards.size()
+        actor_critic = base.actor_critic
 
-    return value_loss, action_log_probs, dist_entropy, advantages
+        values, action_log_probs, dist_entropy, _ = actor_critic.evaluate_actions(
+            rollouts.obs[:-1].view(-1, *obs_shape),
+            rollouts.recurrent_hidden_states[0].view(-1, actor_critic.recurrent_hidden_state_size),
+            rollouts.masks[:-1].view(-1, 1),
+            rollouts.actions.view(-1, action_shape))
+
+        values = values.view(num_steps, num_processes, 1)
+        action_log_probs = action_log_probs.view(num_steps, num_processes, 1)
+
+        advantages = rollouts.returns[:-1] - values
+
+        action_log_probs_arr.append(action_log_probs)
+        dist_entropy_arr.append(dist_entropy)
+        advantages_arr.append(advantages)
+
+        if total_returns is not None:
+            total_returns = rollouts.returns[:-1]
+        else:
+            total_returns += rollouts.returns[:-1]
+        if total_values is not None:
+            total_values = values
+        else:
+            total_values += values
+
+    total_loss = total_returns - total_values
+    value_loss = total_loss.pow(2).mean()
+
+    return value_loss, action_log_probs_arr, dist_entropy_arr, advantages_arr
 
 class Optimizer(object):
     def train(self, next_obs, reward, done, info, encoded_action):
@@ -96,17 +121,16 @@ class Optimizer(object):
                 FIRST HALF OF UPDATE (ADAM-CRITIC)
                 """
 
-                # Evaluate parallelism
-                p_value_loss, p_action_log_probs, p_dist_entropy, p_adv = get_critic_gradient(self.agent_parallelism_v,
-                                                                                       self.rollouts_parallelism)
-                # Evaluate concurrency
-                c_value_loss, c_action_log_probs, c_dist_entropy, c_adv = get_critic_gradient(self.agent_concurrency_v,
-                                                                                       self.rollouts_concurrency)
+                # Evaluate parallelism and concurrency critics
+                value_loss, act_log_probs_arr, dist_entropy_arr, adv_arr = get_joint_gradient(
+                    [self.agent_parallelism_v, self.agent_concurrency_v],
+                    [self.rollouts_parallelism, self.rollouts_concurrency]
+                )
 
                 # Combine losses and back-propagate
                 self.optimizer_critic.zero_grad()
 
-                ((p_value_loss + c_value_loss) * args.value_loss_coef).backward()
+                (value_loss * args.value_loss_coef).backward()
                 torch.nn.utils.clip_grad_norm_(self.module_list.parameters(), args.max_grad_norm)
 
                 self.optimizer_critic.step()
@@ -115,10 +139,12 @@ class Optimizer(object):
                 """
                 SECOND HALF OF UPDATE (ADAM-ACTOR)
                 """
-                value_loss, action_loss, dist_entropy = self.agent_parallelism_v.vdac_update(p_value_loss,
-                                                                                           p_action_log_probs,
-                                                                                           p_dist_entropy, p_adv)
-                _, _, _ = self.agent_concurrency_v.vdac_update(p_value_loss, p_action_log_probs, p_dist_entropy, p_adv)
+                action_loss, dist_entropy = self.agent_parallelism_v.vdac_update(
+                    act_log_probs_arr[0], dist_entropy_arr[0], adv_arr[0]
+                )
+                _, _ = self.agent_concurrency_v.vdac_update(
+                    act_log_probs_arr[1], dist_entropy_arr[1], adv_arr[1]
+                )
 
             else:
                 value_loss, action_loss, dist_entropy = self.agent_parallelism.update(self.rollouts_parallelism)
