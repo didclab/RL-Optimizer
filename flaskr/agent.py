@@ -75,6 +75,7 @@ def get_joint_gradient(bases, rollouts_arr):
 
     return value_loss, action_log_probs_arr, dist_entropy_arr, advantages_arr
 
+
 class Optimizer(object):
     def train(self, next_obs, reward, done, info, encoded_action):
 
@@ -328,7 +329,9 @@ class Optimizer(object):
             self.module_list = torch.nn.ModuleList(self.actor_critic)
             self.optimizer_critic = torch.optim.Adam(self.module_list.parameters(), lr=0.001, eps=args.eps)
 
-            self.scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer_critic, base_lr=0.0001, max_lr=0.001)
+            self.scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.optimizer_critic, base_lr=0.0001, max_lr=0.001, cycle_momentum=False
+            )
 
         self.envs.interpret(self.action_p.item(), self.action_c.item())
         self.reset_obs = None

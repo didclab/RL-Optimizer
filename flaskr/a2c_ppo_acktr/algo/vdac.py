@@ -31,7 +31,7 @@ class VDAC_SUM:
             self.optimizer = optim.Adam(
                 actor_critic.parameters(), lr, eps=eps)
 
-        self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=0.0001, max_lr=lr)
+        self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=0.0001, max_lr=lr, cycle_momentum=False)
 
     def vdac_update(self, action_log_probs, dist_entropy, advantages):
         action_loss = -(advantages.detach() * action_log_probs).mean()

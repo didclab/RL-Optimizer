@@ -42,6 +42,7 @@ class Args:
 
         self.new_policy = True
         self.enable_vdac = True
+        self.ping_interval = 30.
 
         # self.file_path = '/home/didclab/Pictures/ubuntu-20.04.3-desktop-amd64(1).iso'
         # self.file_path = '/home/didclab/Pictures/moby.img'
@@ -63,7 +64,7 @@ def get_args():
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
-    assert args.algo in ['a2c', 'ppo', 'acktr']
+    assert args.algo in ['a2c', 'ppo', 'acktr', 'vdac']
     if args.recurrent_policy:
         assert args.algo in ['a2c', 'ppo'], \
             'Recurrent policy is not implemented for ACKTR'

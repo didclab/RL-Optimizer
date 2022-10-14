@@ -303,7 +303,8 @@ class InfluxEnvironment(gym.Env):
             self._data_keys['jobId'] = filtered_data['jobId'].iat[-1]
             self._data_keys['bytes_sent'] = filtered_data['bytes_sent'].iat[-1]
             # Normalize data
-            reward_scaled = (filtered_data['throughput'] / self._throughput_baseline).iat[-1]
+            reward_scaled = filtered_data['totalBytesSent'] / args.ping_interval
+            reward_scaled = (reward_scaled / self._throughput_baseline).iat[-1]
 
             if isna(reward_scaled):
                 print('!! NAN Reward encountered; Dumping !!')
@@ -324,10 +325,10 @@ class InfluxEnvironment(gym.Env):
             #     reward_scalar = 0.
             else:
                 reward_scalar_c = np.mean(self.throughput_list)
-                if filtered_data['concurrency'].iat[-1] > 1:
-                    reward_scalar_c *= (1 - (1 / filtered_data['concurrency'].iat[-1]))
-                else:
-                    reward_scalar_c *= 0.3
+                # if filtered_data['concurrency'].iat[-1] > 1:
+                #     reward_scalar_c *= (1 - (1 / filtered_data['concurrency'].iat[-1]))
+                # else:
+                #     reward_scalar_c *= 0.3
                 reward_scalar_c = np.round(reward_scalar_c, 1)
 
             if not self._done_switch and self.output_p is not None and self.output_p.item() == 1 and self.past_action[
@@ -339,10 +340,10 @@ class InfluxEnvironment(gym.Env):
             #     reward_scalar = 0.
             else:
                 reward_scalar_p = np.mean(self.throughput_list)
-                if filtered_data['parallelism'].iat[-1] > 1:
-                    reward_scalar_p *= (1 - (1 / filtered_data['parallelism'].iat[-1]))
-                else:
-                    reward_scalar_p *= 0.3
+                # if filtered_data['parallelism'].iat[-1] > 1:
+                #     reward_scalar_p *= (1 - (1 / filtered_data['parallelism'].iat[-1]))
+                # else:
+                #     reward_scalar_p *= 0.3
                 reward_scalar_p = np.round(reward_scalar_p, 1)
 
             # reward_scalar_c += (self.reg * filtered_data['concurrency'].iat[-1])
