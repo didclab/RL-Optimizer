@@ -61,11 +61,11 @@ def get_joint_gradient(bases, rollouts_arr):
         dist_entropy_arr.append(dist_entropy)
         advantages_arr.append(advantages)
 
-        if total_returns is not None:
+        if total_returns is None:
             total_returns = rollouts.returns[:-1]
         else:
             total_returns += rollouts.returns[:-1]
-        if total_values is not None:
+        if total_values is None:
             total_values = values
         else:
             total_values += values
@@ -128,24 +128,33 @@ class Optimizer(object):
                     [self.rollouts_parallelism, self.rollouts_concurrency]
                 )
 
-                # Combine losses and back-propagate
-                self.optimizer_critic.zero_grad()
-
-                (value_loss * args.value_loss_coef).backward()
-                torch.nn.utils.clip_grad_norm_(self.module_list.parameters(), args.max_grad_norm)
-
-                self.optimizer_critic.step()
-                self.scheduler.step()
-
                 """
                 SECOND HALF OF UPDATE (ADAM-ACTOR)
                 """
-                action_loss, dist_entropy = self.agent_parallelism_v.vdac_update(
+                action_loss_p_tensor, dist_entropy_p_tensor = self.agent_parallelism_v.vdac_update(
                     act_log_probs_arr[0], dist_entropy_arr[0], adv_arr[0]
                 )
-                _, _ = self.agent_concurrency_v.vdac_update(
+                action_loss_c_tensor, dist_entropy_c_tensor = self.agent_concurrency_v.vdac_update(
                     act_log_probs_arr[1], dist_entropy_arr[1], adv_arr[1]
                 )
+
+                """
+                BACK-PROPAGATE
+                """
+                # Combine losses and back-propagate
+                self.optimizer_vdac.zero_grad()
+
+                final_back_propagate = (value_loss * args.value_loss_coef)
+                final_back_propagate += (action_loss_p_tensor + action_loss_c_tensor)
+                final_back_propagate -= (dist_entropy_p_tensor + dist_entropy_c_tensor) * args.entropy_coef
+                final_back_propagate.backward()
+                torch.nn.utils.clip_grad_norm_(self.module_list.parameters(), args.max_grad_norm)
+
+                self.optimizer_vdac.step()
+                self.scheduler.step()
+
+                action_loss = action_loss_p_tensor.item()
+                dist_entropy = dist_entropy_p_tensor.item()
 
             else:
                 value_loss, action_loss, dist_entropy = self.agent_parallelism.update(self.rollouts_parallelism)
@@ -327,10 +336,10 @@ class Optimizer(object):
 
         if args.enable_vdac:
             self.module_list = torch.nn.ModuleList(self.actor_critic)
-            self.optimizer_critic = torch.optim.Adam(self.module_list.parameters(), lr=0.001, eps=args.eps)
+            self.optimizer_vdac = torch.optim.Adam(self.module_list.parameters(), lr=0.001, eps=args.eps)
 
             self.scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.optimizer_critic, base_lr=0.0001, max_lr=0.001, cycle_momentum=False
+                self.optimizer_vdac, base_lr=0.0001, max_lr=0.001, cycle_momentum=False
             )
 
         self.envs.interpret(self.action_p.item(), self.action_c.item())

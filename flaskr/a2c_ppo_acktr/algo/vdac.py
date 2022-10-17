@@ -53,14 +53,14 @@ class VDAC_SUM:
         #     fisher_loss.backward(retain_graph=True)
         #     self.optimizer.acc_stats = False
 
-        self.optimizer.zero_grad()
-        (action_loss - dist_entropy * self.entropy_coef).backward()
+        # self.optimizer.zero_grad()
+        # (action_loss - dist_entropy * self.entropy_coef).backward()
+        #
+        # if not self.acktr:
+        #     nn.utils.clip_grad_norm_(self.actor_critic.parameters(),
+        #                              self.max_grad_norm)
+        #
+        # self.optimizer.step()
+        # self.scheduler.step()
 
-        if not self.acktr:
-            nn.utils.clip_grad_norm_(self.actor_critic.parameters(),
-                                     self.max_grad_norm)
-
-        self.optimizer.step()
-        self.scheduler.step()
-
-        return action_loss.item(), dist_entropy.item()
+        return action_loss, dist_entropy
