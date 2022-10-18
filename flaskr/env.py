@@ -157,7 +157,7 @@ class InfluxEnvironment(gym.Env):
         self.action_space = spaces.Discrete(n=3)
 
         self._p_names = ['concurrency', 'parallelism', 'pipelining', 'chunkSize']
-        self._running_obs = ['freeMemory', 'rtt', 'jobSize', 'avgJobSize', 'throughput']
+        self._running_obs = ['freeMemory', 'rtt', 'jobSize', 'avgJobSize', 'totalBytesSent']
         self._obs_names = ['concurrency', 'pipelining', 'parallelism'] + self._running_obs
         # CC, P, PP, totalBytesSent, memory
         self.observation_space = spaces.Box(low=-4., high=4., dtype=np.float32, shape=(len(self._obs_names),))
@@ -363,6 +363,9 @@ class InfluxEnvironment(gym.Env):
                     filtered_data[o] /= 1e9
                 elif o == 'throughput':
                     filtered_data[o] /= self._throughput_baseline
+                elif o == 'totalBytesSent':
+                    filtered_data[o] /= self._throughput_baseline
+                    filtered_data[o] /= args.ping_interval
                 else:
                     self.obs_norm_list[o] += list(filtered_data[o])
                     filtered_data[o] = self.normalize(filtered_data[o], self.obs_norm_list[o])

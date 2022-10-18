@@ -151,7 +151,7 @@ class Optimizer(object):
                 torch.nn.utils.clip_grad_norm_(self.module_list.parameters(), args.max_grad_norm)
 
                 self.optimizer_vdac.step()
-                self.scheduler.step()
+                # self.scheduler.step()
 
                 action_loss = action_loss_p_tensor.item()
                 dist_entropy = dist_entropy_p_tensor.item()
@@ -338,9 +338,9 @@ class Optimizer(object):
             self.module_list = torch.nn.ModuleList(self.actor_critic)
             self.optimizer_vdac = torch.optim.Adam(self.module_list.parameters(), lr=0.001, eps=args.eps)
 
-            self.scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.optimizer_vdac, base_lr=0.0001, max_lr=0.001, cycle_momentum=False
-            )
+            # self.scheduler = torch.optim.lr_scheduler.CyclicLR(
+            #     self.optimizer_vdac, base_lr=0.0001, max_lr=0.0004, cycle_momentum=False
+            # )
 
         self.envs.interpret(self.action_p.item(), self.action_c.item())
         self.reset_obs = None
