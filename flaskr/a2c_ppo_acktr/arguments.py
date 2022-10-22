@@ -43,6 +43,8 @@ class Args:
         self.new_policy = True
         self.enable_vdac = True
         self.ping_interval = 30.
+        self.limit_runs = True
+        self.max_num_episodes = 300
 
         # self.file_path = '/home/didclab/Pictures/ubuntu-20.04.3-desktop-amd64(1).iso'
         # self.file_path = '/home/didclab/Pictures/moby.img'

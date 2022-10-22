@@ -30,6 +30,8 @@ epsilon = 1.
 epsilon_decay = 0.93325
 sample_space = [i for i in range(2, 7)]
 
+num_episodes = 0
+
 class ScheduleTransfer(threading.Thread):
     def __init__(self):
         super(ScheduleTransfer, self).__init__()
@@ -107,6 +109,7 @@ def delete_optimizer():
         global epsilon
         global start_p
         global start_c
+        global num_episodes
 
         jd = request.json
         delete_op = DeleteOptimizerRequest(jd['nodeId'])
@@ -144,6 +147,11 @@ def delete_optimizer():
         start_p = opt.envs.best_start[0]
         start_c = opt.envs.best_start[1]
         epsilon = max(0.001, epsilon * epsilon_decay)
-        schedule_thread = ScheduleTransfer().start()
+
+        num_episodes += 1
+        if args.limit_runs and args.max_num_episodes < num_episodes:
+            print(num_episodes, ' episodes done. Idling')
+        else:
+            ScheduleTransfer().start()
         print("Reset to:", (start_p, start_c))
     return '', 204
