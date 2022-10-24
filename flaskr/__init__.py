@@ -180,6 +180,7 @@ def delete_optimizer():
                 os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
                 print('Switching to fast transfers; Episode', num_episodes)
             agent.true_delete(delete_op)
+            scheduler.shutdown()
         else:
             print('Starting Episode', num_episodes, '; Slow?', fast_slow_switch)
 
