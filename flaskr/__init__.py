@@ -169,6 +169,7 @@ def delete_optimizer():
         if args.limit_runs and args.max_num_episodes < num_episodes:
             print(num_episodes, ' episodes done. Switching Task...')
             num_episodes = 0
+            epsilon = 1
             log_counts[fast_slow_switch] += 1
             fast_slow_switch = (fast_slow_switch + 1) % 2
             transfer_request = transfer_requests[fast_slow_switch]
