@@ -380,6 +380,11 @@ def delete_optimizer(delete_req: DeleteOptimizerRequest):
     return delete_req.node_id
 
 
+def true_delete(delete_req: DeleteOptimizerRequest):
+    optimizer_map.pop(delete_req.node_id)
+    return delete_req.node_id
+
+
 def clean_all():
     for key in optimizer_map:
         optimizer_map[key].envs.close()

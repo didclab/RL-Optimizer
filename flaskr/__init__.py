@@ -22,7 +22,12 @@ import random
 scheduler = BackgroundScheduler()
 
 with open('transfer.json') as f:
-    transfer_request = json.load(f)
+    transfer_requests = [json.load(f)]
+
+with open('slow-transfer.json') as f:
+    transfer_requests.append(json.load(f))
+
+transfer_request = transfer_requests[0]
 
 start_p = 2
 start_c = 2
@@ -31,11 +36,14 @@ epsilon_decay = 0.93325
 sample_space = [i for i in range(2, 7)]
 
 num_episodes = 0
+fast_slow_switch = 0
+log_counts = [0, 0]
+
 
 class ScheduleTransfer(threading.Thread):
     def __init__(self):
         super(ScheduleTransfer, self).__init__()
-    
+
     def run(self):
         for f in args.file_path:
             try:
@@ -54,7 +62,9 @@ class ScheduleTransfer(threading.Thread):
         )
         print(r.status_code, r.reason)
 
+
 schedule_thread = None
+
 
 def at_exit():
     # scheduler.shutdown()
@@ -62,10 +72,12 @@ def at_exit():
         schedule_thread.join()
     agent.clean_all()
 
+
 atexit.register(at_exit)
 
 app = Flask(__name__)
 start = time.time()
+
 
 @app.route('/optimizer/create', methods=['POST'])
 def create_optimizer():
@@ -110,6 +122,10 @@ def delete_optimizer():
         global start_p
         global start_c
         global num_episodes
+        global schedule_thread
+        global transfer_request
+        global fast_slow_switch
+        global log_counts
 
         jd = request.json
         delete_op = DeleteOptimizerRequest(jd['nodeId'])
@@ -128,12 +144,12 @@ def delete_optimizer():
         opt.envs._done_switch = True
         print('Updating distribution...')
         opt.envs.parameter_dist_map.update_parameter_dist(
-                opt.envs.best_start[0], 
-                opt.envs.best_start[1],
-                (thrput / 16) * 15
+            opt.envs.best_start[0],
+            opt.envs.best_start[1],
+            (thrput / 16) * 15
         )
         print("Resetting environment...", epsilon)
-        
+
         golden_number = random.random()
         if golden_number < epsilon:
             sampled_p = random.choice(sample_space)
@@ -150,8 +166,23 @@ def delete_optimizer():
 
         num_episodes += 1
         if args.limit_runs and args.max_num_episodes < num_episodes:
-            print(num_episodes, ' episodes done. Idling')
+            print(num_episodes, ' episodes done. Switching Task...')
+            num_episodes = 0
+            log_counts[fast_slow_switch] += 1
+            fast_slow_switch = (fast_slow_switch + 1) % 2
+            transfer_request = transfer_requests[fast_slow_switch]
+            if fast_slow_switch == 1:
+                os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/short-time-%d" % log_counts[0])
+                os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 1000000")
+                print('Switching to slow transfers; Episode', num_episodes)
+            else:
+                os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d" % log_counts[1])
+                os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
+                print('Switching to fast transfers; Episode', num_episodes)
+            agent.true_delete(delete_op)
         else:
-            ScheduleTransfer().start()
+            print('Starting Episode', num_episodes, '; Slow?', fast_slow_switch)
+
+        schedule_thread = ScheduleTransfer().start()
         print("Reset to:", (start_p, start_c))
     return '', 204
