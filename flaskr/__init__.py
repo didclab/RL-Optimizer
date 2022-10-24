@@ -126,6 +126,7 @@ def delete_optimizer():
         global transfer_request
         global fast_slow_switch
         global log_counts
+        global scheduler
 
         jd = request.json
         delete_op = DeleteOptimizerRequest(jd['nodeId'])
@@ -181,6 +182,7 @@ def delete_optimizer():
                 print('Switching to fast transfers; Episode', num_episodes)
             agent.true_delete(delete_op)
             scheduler.shutdown()
+            scheduler = BackgroundScheduler()
         else:
             print('Starting Episode', num_episodes, '; Slow?', fast_slow_switch)
 
