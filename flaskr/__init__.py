@@ -100,7 +100,7 @@ def create_optimizer():
         start = time.time()
         print("Start Time:", start)
         if schedule:
-            scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=15)
+            scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=60)
             scheduler.start()
         # else:
         #     print('Resetting Environment...')
