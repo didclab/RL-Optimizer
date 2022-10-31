@@ -1,3 +1,5 @@
+from abc import ABC
+
 import gym
 import numpy as np
 import torch
@@ -19,12 +21,12 @@ args = get_args()
 
 
 class ParameterDistributionMap:
-    def __init__(self):
+    def __init__(self, override_max=None):
         self.PD_map = {}
         for p in range(1, MAX_PARALLELISM + 1):
             for c in range(1, MAX_CONCURRENCY + 1):
                 self.PD_map[(p, c)] = PoissonDistribution(
-                    MAX_THROUGHPUT,
+                    MAX_THROUGHPUT if override_max is None else override_max,
                     NUM_DISCRETE,
                     NUM_WIENER_STEPS
                 )
@@ -140,8 +142,9 @@ class InfluxData:
         self.client.close()
 
 
-class InfluxEnvironment(gym.Env):
-    def __init__(self, max_cc, max_p, max_pp, influx_client, agent_train_callback, device):
+class InfluxEnvironment(gym.Env, ABC):
+    def __init__(self, max_cc, max_p, max_pp, influx_client, agent_train_callback, device,
+                 override_max=None):
 
         self.influx_client = influx_client
         self.train_callback = agent_train_callback
@@ -172,7 +175,7 @@ class InfluxEnvironment(gym.Env):
         self._done_ptr = 1
         self._done_switch = False
 
-        self.parameter_dist_map = ParameterDistributionMap()
+        self.parameter_dist_map = ParameterDistributionMap(override_max=override_max)
         self.best_start = self.parameter_dist_map.get_best_parameter()
 
         self.current_action = args.starting_action.copy()

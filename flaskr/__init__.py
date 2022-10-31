@@ -88,7 +88,8 @@ def create_optimizer():
                                             json_dict['maxParallelism'], json_dict['maxPipelining'],
                                             json_dict['maxChunkSize'])
         print(create_opt.__str__())
-        schedule = agent.create_optimizer(create_opt)
+        schedule = agent.create_optimizer(create_opt,
+                                          override_max=None if fast_slow_switch == 1 else args.bandwidth_restriction)
         opt = agent.get_optimizer(create_opt.node_id)
         start = time.time()
         print("Start Time:", start)
@@ -174,7 +175,7 @@ def delete_optimizer():
             transfer_request = transfer_requests[fast_slow_switch]
             if fast_slow_switch == 1:
                 os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/short-time-%d" % log_counts[0])
-                os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 1000000")
+                os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 5000000") # half the link instead
                 print('Switching to slow transfers; Episode', num_episodes)
             else:
                 os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d" % log_counts[1])

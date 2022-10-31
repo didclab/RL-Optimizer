@@ -53,10 +53,11 @@ class Args:
         self.env_reg = 0.0078125
         self.starting_action = {
             'chunkSize': 68000000.0,  # set this to starting parameters
-            'concurrency': 6.0,  # set this to starting parameters
-            'parallelism': 6.0,  # set this to starting parameters
+            'concurrency': 1.0,  # set this to starting parameters
+            'parallelism': 1.0,  # set this to starting parameters
             'pipelining': 8.0,  # set this to starting parameters
         }
+        self.bandwidth_restriction = 0.15625
 
         self.cuda = False
 

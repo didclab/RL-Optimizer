@@ -240,14 +240,15 @@ class Optimizer(object):
 
         return (self.action_clone_p, self.action_clone_c)
 
-    def __init__(self, create_req: CreateOptimizerRequest):
+    def __init__(self, create_req: CreateOptimizerRequest, override_max=None):
         self.envs = InfluxEnvironment(
             create_req.max_concurrency,
             create_req.max_parallelism,
             create_req.max_pipesize,
             InfluxData(),
             self.train,
-            device
+            device,
+            override_max=override_max
         )
 
         if args.new_policy:
@@ -350,10 +351,10 @@ def get_optimizer(node_id):
     return optimizer_map[node_id]
 
 
-def create_optimizer(create_req: CreateOptimizerRequest):
+def create_optimizer(create_req: CreateOptimizerRequest, override_max=None):
     if create_req.node_id not in optimizer_map:
         # Initialize Optimizer
-        optimizer_map[create_req.node_id] = Optimizer(create_req)
+        optimizer_map[create_req.node_id] = Optimizer(create_req, override_max=override_max)
         return True
     else:
         print("Optimizer already exists for", create_req.node_id)
