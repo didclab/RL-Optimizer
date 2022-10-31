@@ -53,7 +53,7 @@ class ScheduleTransfer(threading.Thread):
                 remove(f)
             except:
                 pass
-        time.sleep(30.)
+        time.sleep(60.)
 
         # Inject Parameters
         transfer_request['options']['concurrencyThreadCount'] = start_c
@@ -100,7 +100,7 @@ def create_optimizer():
         start = time.time()
         print("Start Time:", start)
         if schedule:
-            scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=60)
+            scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=45)
             scheduler.start()
         # else:
         #     print('Resetting Environment...')
