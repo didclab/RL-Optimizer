@@ -27,6 +27,9 @@ with open('transfer.json') as f:
 with open('slow-transfer.json') as f:
     transfer_requests.append(json.load(f))
 
+with open('slower-transfer.json') as f:
+    transfer_requests.append(json.load(f))
+
 transfer_request = transfer_requests[0]
 
 start_p = 2
@@ -88,8 +91,11 @@ def create_optimizer():
                                             json_dict['maxParallelism'], json_dict['maxPipelining'],
                                             json_dict['maxChunkSize'])
         print(create_opt.__str__())
-        schedule = agent.create_optimizer(create_opt,
-                                          override_max=None if fast_slow_switch == 1 else args.bandwidth_restriction)
+        override = None
+        if fast_slow_switch > 0:
+            override = args.bandwidth_restriction[fast_slow_switch]
+
+        schedule = agent.create_optimizer(create_opt, override_max=override)
         opt = agent.get_optimizer(create_opt.node_id)
         start = time.time()
         print("Start Time:", start)
@@ -172,14 +178,19 @@ def delete_optimizer():
             num_episodes = 0
             epsilon = 1
             log_counts[fast_slow_switch] += 1
-            fast_slow_switch = (fast_slow_switch + 1) % 2
+            fast_slow_switch = (fast_slow_switch + 1) % args.number_tests
             transfer_request = transfer_requests[fast_slow_switch]
             if fast_slow_switch == 1:
                 os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/short-time-%d" % log_counts[0])
                 os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 5000000")  # half the link instead
                 print('Switching to slow transfers; Episode', num_episodes)
+            elif fast_slow_switch == 2:
+                os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d" % log_counts[1])
+                os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
+                os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 3000000")  # three-tenth
+                print('Switching to slower transfers; Episode', num_episodes)
             else:
-                os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d.log" % log_counts[1])
+                os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/longer-time-%d.log" % log_counts[2])
                 os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
                 print('Switching to fast transfers; Episode', num_episodes)
             agent.true_delete(delete_op)
