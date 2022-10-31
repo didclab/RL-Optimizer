@@ -170,6 +170,7 @@ def delete_optimizer():
         if args.limit_runs and args.max_num_episodes < num_episodes:
             print(num_episodes, ' episodes done. Switching Task...')
             num_episodes = 0
+            epsilon = 1
             log_counts[fast_slow_switch] += 1
             fast_slow_switch = (fast_slow_switch + 1) % 2
             transfer_request = transfer_requests[fast_slow_switch]
@@ -178,7 +179,7 @@ def delete_optimizer():
                 os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 5000000") # half the link instead
                 print('Switching to slow transfers; Episode', num_episodes)
             else:
-                os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d" % log_counts[1])
+                os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d.log" % log_counts[1])
                 os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
                 print('Switching to fast transfers; Episode', num_episodes)
             agent.true_delete(delete_op)
