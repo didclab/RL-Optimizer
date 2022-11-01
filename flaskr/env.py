@@ -111,11 +111,10 @@ class InfluxData:
 
     def query_space(self):
         q = '''from(bucket: "elvisdav@buffalo.edu")
-  |> range(start: -5m)
-  |> fill(usePrevious: true)
-  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value") 
+  |> range(start: -2m)
   |> filter(fn: (r) => r["_measurement"] == "transfer_data")
-  |> filter(fn: (r) => r["APP_NAME"] == _APP_NAME)'''
+  |> filter(fn: (r) => r["APP_NAME"] == _APP_NAME)
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")'''
 
         data_frame = self.query_api.query_data_frame(q, params=self.p)
         # print(data_frame.tail())
