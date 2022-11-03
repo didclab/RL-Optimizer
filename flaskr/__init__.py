@@ -40,7 +40,7 @@ sample_space = [i for i in range(2, 7)]
 
 num_episodes = 0
 fast_slow_switch = 0
-log_counts = [0, 0]
+log_counts = [0, 0, 0]
 
 
 class ScheduleTransfer(threading.Thread):
@@ -100,7 +100,7 @@ def create_optimizer():
         start = time.time()
         print("Start Time:", start)
         if schedule:
-            scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=45)
+            scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=15)
             scheduler.start()
         # else:
         #     print('Resetting Environment...')
