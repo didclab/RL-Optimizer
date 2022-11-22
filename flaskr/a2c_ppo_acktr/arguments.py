@@ -59,7 +59,7 @@ class Args:
         }
         self.bandwidth_restriction = [0.3125, 0.15625, 0.09375]
 
-        self.number_tests = 3
+        self.number_tests = 2
 
         self.cuda = False
 

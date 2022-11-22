@@ -182,14 +182,16 @@ def delete_optimizer():
             transfer_request = transfer_requests[fast_slow_switch]
             if fast_slow_switch == 1:
                 os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/short-time-%d.log" % log_counts[0])
-                os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 5000000")  # half the link instead
+                # os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 5000000")  # half the link instead
+                os.system("ssh serv ./restrict_link.sh eno1 3000 10000")
                 print('Switching to slow transfers; Episode', num_episodes)
             elif fast_slow_switch == 2:
                 os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d.log" % log_counts[1])
-                os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
-                os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 3000000")  # three-tenth
-                print('Switching to slower transfers; Episode', num_episodes)
-            else:
+                # os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
+                # os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 3000000")  # three-tenth
+                os.system("ssh serv ./free_link.sh eno1")
+                print('Switching to fast transfers; Episode', num_episodes)
+            else:  # skipped for now
                 os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/longer-time-%d.log" % log_counts[2])
                 os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
                 print('Switching to fast transfers; Episode', num_episodes)
