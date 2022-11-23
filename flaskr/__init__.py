@@ -138,7 +138,7 @@ def delete_optimizer():
         jd = request.json
         delete_op = DeleteOptimizerRequest(jd['nodeId'])
         end = time.time()
-        # agent.get_optimizer(delete_op.node_id)
+
         print(delete_op.__str__())
         thrput = 256 / (end - start)
         print("^^^ JOB TIME", end - start, "SECONDS ^^^")
@@ -180,16 +180,25 @@ def delete_optimizer():
             log_counts[fast_slow_switch] += 1
             fast_slow_switch = (fast_slow_switch + 1) % args.number_tests
             transfer_request = transfer_requests[fast_slow_switch]
+            save_path = os.path.join(args.save_dir, args.algo)
+
             if fast_slow_switch == 1:
                 os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/short-time-%d.log" % log_counts[0])
-                # os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 5000000")  # half the link instead
-                os.system("ssh serv ./restrict_link.sh eno1 3000 10000")
+                os.system("ssh serv ./restrict_link.sh eno1 2000 10000")
+
+                model_path = os.path.join(save_path, "unrestricted-%d.pt" % log_counts[0])
+                mv_command = "mv " + os.path.join(save_path, args.env_name + ".pt") + " " + model_path
+                os.system(mv_command)
+
                 print('Switching to slow transfers; Episode', num_episodes)
             elif fast_slow_switch == 2:
                 os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d.log" % log_counts[1])
-                # os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
-                # os.system("sudo /home/cc/wondershaper/wondershaper -a eno1 -d 3000000")  # three-tenth
                 os.system("ssh serv ./free_link.sh eno1")
+
+                model_path = os.path.join(save_path, "restricted-%d.pt" % log_counts[1])
+                mv_command = "mv " + os.path.join(save_path, args.env_name + ".pt") + " " + model_path
+                os.system(mv_command)
+
                 print('Switching to fast transfers; Episode', num_episodes)
             else:  # skipped for now
                 os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/longer-time-%d.log" % log_counts[2])
@@ -199,7 +208,7 @@ def delete_optimizer():
             scheduler.shutdown()
             scheduler = BackgroundScheduler()
         else:
-            print('Starting Episode', num_episodes, '; Slow?', fast_slow_switch)
+            print('Starting Episode', num_episodes, '; Slow switch:', fast_slow_switch)
 
         schedule_thread = ScheduleTransfer().start()
         print("Reset to:", (start_p, start_c))

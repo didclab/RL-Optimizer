@@ -10,6 +10,8 @@ from .classes import DeleteOptimizerRequest
 from .classes import InputOptimizerRequest
 from .env import *
 
+from torch.utils.tensorboard import SummaryWriter
+
 optimizer_map = {}
 args = get_args()
 
@@ -78,11 +80,7 @@ def get_joint_gradient(bases, rollouts_arr):
 
 class Optimizer(object):
     def train(self, next_obs, reward, done, info, encoded_action):
-
-        # print('Actions:', encoded_action, self.action_clone)
-        # if self.action_clone.item() != encoded_action:
-        #     print('!! SKIPPING !!')
-        #     return None
+        self._eps_reward += reward
 
         masks = torch.FloatTensor(
             [[0.0] if done else [1.0]])
@@ -156,6 +154,10 @@ class Optimizer(object):
                 action_loss = action_loss_p_tensor.item()
                 dist_entropy = dist_entropy_p_tensor.item()
 
+                self.writer.add_scalar("Train/actor_loss_parallel", action_loss_p_tensor.item(), self.c)
+                self.writer.add_scalar("Train/actor_loss_concurrent", action_loss_c_tensor.item(), self.c)
+                self.writer.add_scalar("Train/joint_critic_loss", value_loss, self.c)
+
             else:
                 value_loss, action_loss, dist_entropy = self.agent_parallelism.update(self.rollouts_parallelism)
                 _, _, _ = self.agent_concurrency.update(self.rollouts_concurrency)
@@ -189,56 +191,82 @@ class Optimizer(object):
 
             self.cur_update += 1
 
-        try:
-            if done:
-                obs = self.reset_obs
-                # print('Agent: Episode done. Resetting:', obs)
-                self.rollouts_parallelism.obs[self.cur_step].copy_(obs)
-                self.rollouts_concurrency.obs[self.cur_step].copy_(obs)
-                self.rollouts_parallelism.masks[self.cur_step].copy_(torch.FloatTensor([[1.0]]))
-                self.rollouts_concurrency.masks[self.cur_step].copy_(torch.FloatTensor([[1.0]]))
+        if done:
+            self.writer.add_scalar("Train/episode_reward", self._eps_reward, self.episode_c)
+            self.episode_c += 1
+            self._eps_reward = 0.
 
-            self.value_p, self.action_p, self.action_log_prob_p, self.recurrent_hidden_states_p = self.actor_critic[
-                0].act(
-                self.rollouts_parallelism.obs[self.cur_step],
-                self.rollouts_parallelism.recurrent_hidden_states[self.cur_step],
-                self.rollouts_parallelism.masks[self.cur_step])
-            self.value_c, self.action_c, self.action_log_prob_c, self.recurrent_hidden_states_c = self.actor_critic[
-                1].act(
-                self.rollouts_concurrency.obs[self.cur_step],
-                self.rollouts_concurrency.recurrent_hidden_states[self.cur_step],
-                self.rollouts_concurrency.masks[self.cur_step])
+            obs = self.reset_obs
+            # print('Agent: Episode done. Resetting:', obs)
+            self.rollouts_parallelism.obs[self.cur_step].copy_(obs)
+            self.rollouts_concurrency.obs[self.cur_step].copy_(obs)
+            self.rollouts_parallelism.masks[self.cur_step].copy_(torch.FloatTensor([[1.0]]))
+            self.rollouts_concurrency.masks[self.cur_step].copy_(torch.FloatTensor([[1.0]]))
 
-            # self.action_q.append((
-            #     self.value, self.action, self.action_log_prob, self.recurrent_hidden_states
-            # ))
-        except:
-            print("NAN ERROR", reward, self.cur_step)
-            print("@@@ ROLLOUT OBS @@@", self.rollouts_parallelism.obs[self.cur_step])
-            print("@@@ ROLLOUT REC_HIDDEN @@@", self.rollouts_parallelism.recurrent_hidden_states[self.cur_step])
-            print("@@@ ROLLOUT MASKS @@@", self.rollouts_parallelism.recurrent_hidden_states[self.cur_step])
-            print("@@@ Attemping Recovery... @@@")
-            self.rollouts_parallelism.obs[self.cur_step][0, -1] = 3.
-            self.rollouts_concurrency.obs[self.cur_step][0, -1] = 3.
+            self.value_p, self.action_p, self.action_log_prob_p, self.recurrent_hidden_states_p = \
+                self.actor_critic[0].act(
+                    self.rollouts_parallelism.obs[self.cur_step],
+                    self.rollouts_parallelism.recurrent_hidden_states[self.cur_step],
+                    self.rollouts_parallelism.masks[self.cur_step]
+                )
+            self.value_c, self.action_c, self.action_log_prob_c, self.recurrent_hidden_states_c = \
+                self.actor_critic[1].act(
+                    self.rollouts_concurrency.obs[self.cur_step],
+                    self.rollouts_concurrency.recurrent_hidden_states[self.cur_step],
+                    self.rollouts_concurrency.masks[self.cur_step]
+                )
 
-            self.value_p, self.action_p, self.action_log_prob_p, self.recurrent_hidden_states_p = self.actor_critic[
-                0].act(
-                self.rollouts_parallelism.obs[self.cur_step],
-                self.rollouts_parallelism.recurrent_hidden_states[self.cur_step],
-                self.rollouts_parallelism.masks[self.cur_step])
-            self.value_c, self.action_c, self.action_log_prob_c, self.recurrent_hidden_states_c = self.actor_critic[
-                1].act(
-                self.rollouts_concurrency.obs[self.cur_step],
-                self.rollouts_concurrency.recurrent_hidden_states[self.cur_step],
-                self.rollouts_concurrency.masks[self.cur_step])
-
-            print("### Recovered Action:", self.action_p, self.action_c, "###")
+        # try:
+        #     if done:
+        #         obs = self.reset_obs
+        #         # print('Agent: Episode done. Resetting:', obs)
+        #         self.rollouts_parallelism.obs[self.cur_step].copy_(obs)
+        #         self.rollouts_concurrency.obs[self.cur_step].copy_(obs)
+        #         self.rollouts_parallelism.masks[self.cur_step].copy_(torch.FloatTensor([[1.0]]))
+        #         self.rollouts_concurrency.masks[self.cur_step].copy_(torch.FloatTensor([[1.0]]))
+        #
+        #     self.value_p, self.action_p, self.action_log_prob_p, self.recurrent_hidden_states_p = self.actor_critic[
+        #         0].act(
+        #         self.rollouts_parallelism.obs[self.cur_step],
+        #         self.rollouts_parallelism.recurrent_hidden_states[self.cur_step],
+        #         self.rollouts_parallelism.masks[self.cur_step])
+        #     self.value_c, self.action_c, self.action_log_prob_c, self.recurrent_hidden_states_c = self.actor_critic[
+        #         1].act(
+        #         self.rollouts_concurrency.obs[self.cur_step],
+        #         self.rollouts_concurrency.recurrent_hidden_states[self.cur_step],
+        #         self.rollouts_concurrency.masks[self.cur_step])
+        #
+        #     # self.action_q.append((
+        #     #     self.value, self.action, self.action_log_prob, self.recurrent_hidden_states
+        #     # ))
+        # except:
+        #     print("NAN ERROR", reward, self.cur_step)
+        #     print("@@@ ROLLOUT OBS @@@", self.rollouts_parallelism.obs[self.cur_step])
+        #     print("@@@ ROLLOUT REC_HIDDEN @@@", self.rollouts_parallelism.recurrent_hidden_states[self.cur_step])
+        #     print("@@@ ROLLOUT MASKS @@@", self.rollouts_parallelism.recurrent_hidden_states[self.cur_step])
+        #     print("@@@ Attemping Recovery... @@@")
+        #     self.rollouts_parallelism.obs[self.cur_step][0, -1] = 3.
+        #     self.rollouts_concurrency.obs[self.cur_step][0, -1] = 3.
+        #
+        #     self.value_p, self.action_p, self.action_log_prob_p, self.recurrent_hidden_states_p = self.actor_critic[
+        #         0].act(
+        #         self.rollouts_parallelism.obs[self.cur_step],
+        #         self.rollouts_parallelism.recurrent_hidden_states[self.cur_step],
+        #         self.rollouts_parallelism.masks[self.cur_step])
+        #     self.value_c, self.action_c, self.action_log_prob_c, self.recurrent_hidden_states_c = self.actor_critic[
+        #         1].act(
+        #         self.rollouts_concurrency.obs[self.cur_step],
+        #         self.rollouts_concurrency.recurrent_hidden_states[self.cur_step],
+        #         self.rollouts_concurrency.masks[self.cur_step])
+        #
+        #     print("### Recovered Action:", self.action_p, self.action_c, "###")
 
         self.cur_step += 1
+        self.c += 1
         self.action_clone_p = self.action_p.clone().detach()
         self.action_clone_c = self.action_c.clone().detach()
 
-        return (self.action_clone_p, self.action_clone_c)
+        return self.action_clone_p, self.action_clone_c
 
     def __init__(self, create_req: CreateOptimizerRequest, override_max=None):
         self.envs = InfluxEnvironment(
@@ -250,6 +278,11 @@ class Optimizer(object):
             device,
             override_max=override_max
         )
+
+        self.writer = SummaryWriter()
+        self.c = 0
+        self.episode_c = 0
+        self._eps_reward = 0.
 
         if args.new_policy:
             self.actor_critic = [Policy(
@@ -382,6 +415,7 @@ def delete_optimizer(delete_req: DeleteOptimizerRequest):
 
 
 def true_delete(delete_req: DeleteOptimizerRequest):
+    optimizer_map[delete_req.node_id].envs.close()
     optimizer_map.pop(delete_req.node_id)
     return delete_req.node_id
 

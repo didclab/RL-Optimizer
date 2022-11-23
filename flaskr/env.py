@@ -13,10 +13,6 @@ from .a2c_ppo_acktr.arguments import get_args
 from .sprout_constants import *
 from .poisson import PoissonDistribution
 
-from torch.utils.tensorboard import SummaryWriter
-
-writer = SummaryWriter()
-
 args = get_args()
 
 
@@ -198,8 +194,8 @@ class InfluxEnvironment(gym.Env, ABC):
 
     def close(self):
         self.influx_client.close_client()
-        writer.flush()
-        writer.close()
+        # writer.flush()
+        # writer.close()
 
     def parse_action(self, net_output):
         # return (torch.div(net_output, 6, rounding_mode='floor'), net_output % 6)
@@ -394,7 +390,7 @@ class InfluxEnvironment(gym.Env, ABC):
             }
 
             if done:
-                writer.add_scalar("Train/episode_reward", self._eps_reward, self.episode_count)
+                # writer.add_scalar("Train/episode_reward", self._eps_reward, self.episode_count)
                 self.episode_count += 1
                 next_observation = self.reset()
                 # print('Environment Reset:', self.current_action)

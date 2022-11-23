@@ -57,7 +57,7 @@ class Args:
             'parallelism': 1.0,  # set this to starting parameters
             'pipelining': 8.0,  # set this to starting parameters
         }
-        self.bandwidth_restriction = [0.3125, 0.15625, 0.09375]
+        self.bandwidth_restriction = [0.3125, 0.0625, 0.09375]
 
         self.number_tests = 2
 
