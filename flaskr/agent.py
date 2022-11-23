@@ -80,7 +80,7 @@ def get_joint_gradient(bases, rollouts_arr):
 
 class Optimizer(object):
     def train(self, next_obs, reward, done, info, encoded_action):
-        self._eps_reward += reward
+        self._eps_reward += reward[0]
 
         masks = torch.FloatTensor(
             [[0.0] if done else [1.0]])
