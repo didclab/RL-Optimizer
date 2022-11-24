@@ -59,7 +59,21 @@ class Args:
         }
         self.bandwidth_restriction = [0.3125, 0.0625, 0.09375]
 
-        self.number_tests = 2
+        self.number_tests = 119
+        self.job_size_Gbit = 318
+        self.start_cmd = [
+            "python ~/odscli/onedatashare.py transfer http tacc-http \"/\" -f \"\" vfs " +
+            "elvisdav@buffalo.edu-didclab-elvis-uc \"/mnt/ramdisk/dest/\" --concurrency=%d --parallel=%d --pipesize=8" +
+            " --chunksize=67108864 --compress=false --retry=1",
+
+            "python ~/odscli/onedatashare.py transfer http tacc-http \"/\" -f \"\" vfs " +
+            "elvisdav@buffalo.edu-didclab-elvis-uc \"/mnt/ramdisk/dest/\" --concurrency=%d --parallel=%d --pipesize=8" +
+            " --chunksize=67108864 --compress=false --retry=1",
+
+            "python ~/odscli/onedatashare.py transfer http tacc-http \"/\" -f \"\" vfs " +
+            "elvisdav@buffalo.edu-didclab-elvis-uc \"/mnt/ramdisk/dest/\" --concurrency=%d --parallel=%d --pipesize=8" +
+            " --chunksize=67108864 --compress=false --retry=1"
+        ]
 
         self.cuda = False
 

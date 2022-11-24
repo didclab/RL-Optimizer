@@ -14,23 +14,24 @@ from .bo_optimizer import *
 from .agent import *
 
 import threading
-import requests
-import json
+# import requests
+# import json
+import pickle
 
 import random
 
 scheduler = BackgroundScheduler()
 
-with open('transfer.json') as f:
-    transfer_requests = [json.load(f)]
+# with open('transfer.json') as f:
+#     transfer_requests = [json.load(f)]
+#
+# with open('slow-transfer.json') as f:
+#     transfer_requests.append(json.load(f))
+#
+# with open('slower-transfer.json') as f:
+#     transfer_requests.append(json.load(f))
 
-with open('slow-transfer.json') as f:
-    transfer_requests.append(json.load(f))
-
-with open('slower-transfer.json') as f:
-    transfer_requests.append(json.load(f))
-
-transfer_request = transfer_requests[0]
+transfer_request = args.start_cmd[0]
 
 start_p = 2
 start_c = 2
@@ -53,17 +54,19 @@ class ScheduleTransfer(threading.Thread):
                 remove(f)
             except:
                 pass
-        time.sleep(60.)
+        time.sleep(45.)
 
         # Inject Parameters
-        transfer_request['options']['concurrencyThreadCount'] = start_c
-        transfer_request['options']['parallelThreadCount'] = start_p
+        os.system(transfer_request % (start_c, start_p))
 
-        r = requests.post(
-            "http://192.5.87.31:8092/api/v1/transfer/start",
-            json=transfer_request
-        )
-        print(r.status_code, r.reason)
+        # transfer_request['options']['concurrencyThreadCount'] = start_c
+        # transfer_request['options']['parallelThreadCount'] = start_p
+
+        # r = requests.post(
+        #     "http://192.5.87.31:8092/api/v1/transfer/start",
+        #     json=transfer_request
+        # )
+        # print(r.status_code, r.reason)
 
 
 schedule_thread = None
@@ -140,7 +143,7 @@ def delete_optimizer():
         end = time.time()
 
         print(delete_op.__str__())
-        thrput = 256 / (end - start)
+        thrput = args.job_size_Gbit / (end - start)  # MOVED TO ARGS
         print("^^^ JOB TIME", end - start, "SECONDS ^^^")
         print("THROUGHPUT:", thrput)
         with open('time.log', 'a') as f:
@@ -179,7 +182,7 @@ def delete_optimizer():
             epsilon = 1
             log_counts[fast_slow_switch] += 1
             fast_slow_switch = (fast_slow_switch + 1) % args.number_tests
-            transfer_request = transfer_requests[fast_slow_switch]
+            transfer_request = args.start_cmd[fast_slow_switch]
             save_path = os.path.join(args.save_dir, args.algo)
 
             if fast_slow_switch == 1:
@@ -190,8 +193,11 @@ def delete_optimizer():
                 mv_command = "mv " + os.path.join(save_path, args.env_name + ".pt") + " " + model_path
                 os.system(mv_command)
 
+                with open(os.path.join(save_path, "unrest-sprout-%d.pkl" % log_counts[0]), 'wb') as pkl:
+                    pickle.dump(opt.envs.parameter_dist_map, pkl)
+
                 print('Switching to slow transfers; Episode', num_episodes)
-            elif fast_slow_switch == 2:
+            elif fast_slow_switch == 0:
                 os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d.log" % log_counts[1])
                 os.system("ssh serv ./free_link.sh eno1")
 
@@ -199,8 +205,11 @@ def delete_optimizer():
                 mv_command = "mv " + os.path.join(save_path, args.env_name + ".pt") + " " + model_path
                 os.system(mv_command)
 
+                with open(os.path.join(save_path, "rest-sprout-%d.pkl" % log_counts[1]), 'wb') as pkl:
+                    pickle.dump(opt.envs.parameter_dist_map, pkl)
+
                 print('Switching to fast transfers; Episode', num_episodes)
-            else:  # skipped for now
+            else:  # dead code for now
                 os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/longer-time-%d.log" % log_counts[2])
                 os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
                 print('Switching to fast transfers; Episode', num_episodes)

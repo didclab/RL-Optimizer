@@ -380,7 +380,7 @@ class Optimizer(object):
         self.reset_obs = None
 
 
-def get_optimizer(node_id):
+def get_optimizer(node_id) -> Optimizer:
     return optimizer_map[node_id]
 
 
