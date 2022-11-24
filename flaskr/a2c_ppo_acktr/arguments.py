@@ -44,7 +44,7 @@ class Args:
         self.enable_vdac = True
         self.ping_interval = 30.
         self.limit_runs = True
-        self.max_num_episodes = 249
+        self.max_num_episodes = 119
 
         # self.file_path = '/home/didclab/Pictures/ubuntu-20.04.3-desktop-amd64(1).iso'
         # self.file_path = '/home/didclab/Pictures/moby.img'
@@ -59,7 +59,7 @@ class Args:
         }
         self.bandwidth_restriction = [0.3125, 0.0625, 0.09375]
 
-        self.number_tests = 119
+        self.number_tests = 2
         self.job_size_Gbit = 318
         self.start_cmd = [
             "python ~/odscli/onedatashare.py transfer http tacc-http \"/\" -f \"\" vfs " +
