@@ -12,7 +12,7 @@ from .env import *
 
 from torch.utils.tensorboard import SummaryWriter
 
-optimizer_map = {}
+
 args = get_args()
 
 torch.manual_seed(args.seed)
@@ -380,46 +380,3 @@ class Optimizer(object):
         self.reset_obs = None
 
 
-def get_optimizer(node_id) -> Optimizer:
-    return optimizer_map[node_id]
-
-
-def create_optimizer(create_req: CreateOptimizerRequest, override_max=None):
-    if create_req.node_id not in optimizer_map:
-        # Initialize Optimizer
-        optimizer_map[create_req.node_id] = Optimizer(create_req, override_max=override_max)
-        return True
-    else:
-        print("Optimizer already exists for", create_req.node_id)
-        return False
-
-
-def input_optimizer(input_req: InputOptimizerRequest):
-    opt = optimizer_map[input_req.node_id]
-    # opt.envs.input_step(input_req)
-    return opt.envs.suggest_parameters()
-
-
-def delete_optimizer(delete_req: DeleteOptimizerRequest):
-    opt = optimizer_map[delete_req.node_id]
-    save_path = os.path.join(args.save_dir, args.algo)
-    try:
-        os.makedirs(save_path)
-    except OSError:
-        pass
-
-    torch.save([
-        opt.actor_critic
-    ], os.path.join(save_path, args.env_name + ".pt"))
-    return delete_req.node_id
-
-
-def true_delete(delete_req: DeleteOptimizerRequest):
-    optimizer_map[delete_req.node_id].envs.close()
-    optimizer_map.pop(delete_req.node_id)
-    return delete_req.node_id
-
-
-def clean_all():
-    for key in optimizer_map:
-        optimizer_map[key].envs.close()

@@ -1,5 +1,14 @@
+from collections import OrderedDict
+
 import numpy as np
 import matplotlib
+from pyGPGO.GPGO import GPGO
+from pyGPGO.acquisition import Acquisition
+from pyGPGO.surrogates.GaussianProcess import GaussianProcess
+from pyGPGO.covfunc import squaredExponential
+
+from .env import InfluxData
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from bayes_opt import BayesianOptimization, UtilityFunction
@@ -12,14 +21,45 @@ bo_utility_map = {}
 
 list_name_variables = ['concurrency', 'parallelism', 'pipelining', 'throughput']
 
+class BayesianOptimizer():
+
+    def __init__(self, create_req: CreateOptimizerRequest):
+        self.influx_data = InfluxData()
+        self.sexp = squaredExponential()
+        self.gp = GaussianProcess(self.sexp)
+        self.acq = Acquisition(mode='ExpectedImprovement')
+        self.param = OrderedDict()
+        self.param['cc'] = ('cont', [1,create_req.max_concurrency])
+        self.param['p'] = ('cont', [1, create_req.max_parallelism])
+        self.gpgo = GPGO(self.gp, self.acq, self.f, self.param, n_jobs=-1)
+
+    def input_optimizer(self, input_req: InputOptimizerRequest):
+        x = np.array([input_req.concurrency, input_req.parallelism])
+        y = np.array([input_req.throughput])
+        self.influx_data.query_space()
+        self.gp.update(xnew=x, ynew=y)
+        print("Best Result: ", self.gpgo.getResult())
+        return self.gpgo
+
+    def close(self):
+        self.influx_data.close_client()
+        self.sexp = squaredExponential()
+        self.gp = None
+        self.acq = None
+        self.param = None
+        self.gpgo = None
+
+    def f(self, throughput):
+        return throughput
+
 def create_optimizer(create_req: CreateOptimizerRequest):
     if create_req.node_id not in bayesian_optimizer_map:
         pbounds = {}
         print(create_req)
-        if create_req.max_chunksize > 0:
-            pbounds['chunkSize'] = (64000, create_req.max_chunksize)
-        if create_req.max_pipesize > 0:
-            pbounds['pipelining'] = (1, create_req.max_pipesize)
+        # if create_req.max_chunksize > 0:
+        #     pbounds['chunkSize'] = (64000, create_req.max_chunksize)
+        # if create_req.max_pipesize > 0:
+        #     pbounds['pipelining'] = (1, create_req.max_pipesize)
         if create_req.max_parallelism > 1:
             pbounds['parallelism'] = (1, create_req.max_parallelism)
         if create_req.max_concurrency > 1:
@@ -51,7 +91,7 @@ def delete_optimizer(delete_req: DeleteOptimizerRequest):
 def input_optimizer(input_req: InputOptimizerRequest):
     local_opt = bayesian_optimizer_map[input_req.node_id]
     print(input_req)
-    x = np.array([input_req.concurrency, input_req.parallelism, input_req.pipelining, input_req.chunk_size])
+    x = np.array([input_req.concurrency, input_req.parallelism, input_req])
     y = input_req.throughput
     _uf = bo_utility_map[input_req.node_id]
     try:

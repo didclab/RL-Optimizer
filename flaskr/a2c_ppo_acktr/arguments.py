@@ -1,5 +1,6 @@
 # import argparse
 # from tkinter import N
+from os import path
 
 import torch
 import glob
@@ -34,7 +35,7 @@ class Args:
         self.num_env_steps = 10e6
         self.env_name = 'Influx-v1'
         self.log_dir = '/tmp/gym/'
-        self.save_dir = '/home/cc/rl-optimizer/flaskr/trained_models'
+        self.save_dir = path.expanduser('~') + '/rl-optimizer/flaskr/trained_models'
         self.no_cuda = False
         self.use_proper_time_limits = False
         self.recurrent_policy = False
