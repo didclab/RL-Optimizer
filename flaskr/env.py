@@ -118,6 +118,22 @@ class InfluxData:
         # print(data_frame)
         return data_frame
 
+    def query_bo_space(self, app_name):
+        bucket = str(app_name).split("-")[0] #should be the email part of the APP_Name
+        params = {
+            "BUCKET_NAME": bucket,
+            "_APP_NAME" : app_name,
+        }
+        q = '''from(bucket: "{}")
+  |> range(start: -2m)
+  |> filter(fn: (r) => r["_measurement"] == "transfer_data")
+  |> filter(fn: (r) => r["APP_NAME"] == "{}")
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+        '''.format(bucket, app_name)
+        print(q)
+        data_frame = self.query_api.query_data_frame(q)
+        return data_frame
+
     def prune_df(self, df):
         df2 = df[self.space_keys]
         # print(df2.tail())

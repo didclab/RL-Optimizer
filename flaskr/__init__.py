@@ -150,8 +150,8 @@ def delete_optimizer():
             f.write(str(end - start) + "," + str(thrput) + "\n")
         # print('Waiting for last entries...')
         # time.sleep(31.)
-        optim_map.delete_optimizer(delete_req=delete_op)
-        if optim_map.get_optimizer(delete_op.node_id)[0] =="VDAC":
+        optim_map.delete_optimizer(delete_req=delete_op, args=args)
+        if optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.vda2c:
             optim_map.delete_optimizer(delete_op, args)
             opt = optim_map.get_optimizer(delete_op.node_id)
             opt.envs._done_switch = True
