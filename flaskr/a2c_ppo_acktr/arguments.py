@@ -41,7 +41,13 @@ class Args:
         self.recurrent_policy = False
         self.use_linear_lr_decay = False
 
-        self.new_policy = True
+        self.evaluate = False
+        self.new_policy = True and (not self.evaluate)
+        self.wipe_optimizer_map = True and self.evaluate
+
+        self.model_name = ""  # Set model name
+        self.sprout_name = ""  # Set sprout pickle name
+
         self.enable_vdac = True
         self.ping_interval = 30.
         self.limit_runs = True

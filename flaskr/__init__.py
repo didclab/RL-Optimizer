@@ -153,8 +153,10 @@ def delete_optimizer():
         # print('Waiting for last entries...')
         # time.sleep(31.)
         optim_map.delete_optimizer(delete_req=delete_op, args=args)
-        if optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.vda2c:
-            optim_map.delete_optimizer(delete_op, args)
+        if args.wipe_optimizer_map:
+            optim_map.true_delete(delete_op)
+        elif not args.evaluate and optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.vda2c:
+            # optim_map.delete_optimizer(delete_op, args)
             opt = optim_map.get_optimizer(delete_op.node_id)
             opt.envs._done_switch = True
             print('Updating distribution...')
