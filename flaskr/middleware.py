@@ -3,7 +3,6 @@ import os
 import torch
 
 from flaskr import Optimizer, CreateOptimizerRequest, InputOptimizerRequest, DeleteOptimizerRequest
-from .bo_optimizer import BayesianOptimizer
 from .another_bo import BayesianOptimizerOld
 
 class OptimizerMap(object):
