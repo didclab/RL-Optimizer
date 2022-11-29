@@ -96,7 +96,6 @@ def create_optimizer():
                                             json_dict['maxParallelism'], json_dict['maxPipelining'],
                                             json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'])
         print(create_opt.__str__())
-        optim_map.create_optimizer(create_opt)
 
         if create_opt.optimizerType == optim_map.vda2c:
             override = None
@@ -109,6 +108,9 @@ def create_optimizer():
             if schedule:
                 scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=15)
                 scheduler.start()
+
+        optim_map.create_optimizer(create_opt)
+
         # else:
         #     print('Resetting Environment...')
         #     opt.envs.reset()
