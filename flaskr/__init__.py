@@ -94,11 +94,11 @@ def create_optimizer():
         json_dict = request.json
         create_opt = CreateOptimizerRequest(json_dict['nodeId'], json_dict['maxConcurrency'],
                                             json_dict['maxParallelism'], json_dict['maxPipelining'],
-                                            json_dict['maxChunkSize'], json_dict['optimizerType'])
+                                            json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'])
         print(create_opt.__str__())
         optim_map.create_optimizer(create_opt)
 
-        if create_opt.optimizerType == "VDA2C":
+        if create_opt.optimizerType == optim_map.vda2c:
             override = None
             if fast_slow_switch > 0:
                 override = args.bandwidth_restriction[fast_slow_switch]

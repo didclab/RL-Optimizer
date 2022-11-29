@@ -1,11 +1,12 @@
 class CreateOptimizerRequest(object):
-    def __init__(self, node_id, max_concurrency, max_parallelism, max_pipesize, max_chunk_size, optimizer_type):
+    def __init__(self, node_id, max_concurrency, max_parallelism, max_pipesize, max_chunk_size, optimizer_type, file_count):
         self.node_id = node_id
         self.max_concurrency = max_concurrency  # upper limit on concurrency count
         self.max_parallelism = max_parallelism  # upper limit on parallelism count
         self.max_pipesize = max_pipesize  # the max pipe size to be used
         self.max_chunksize = max_chunk_size  # max chunk size to be used
         self.optimizerType = optimizer_type
+        self.file_count = file_count
 
     def __str__(self):
         rep = "CreateOptimizerRequest object\n"
@@ -15,6 +16,7 @@ class CreateOptimizerRequest(object):
         rep += "max_pipesize: " + str(self.max_pipesize) + "\n"
         rep += "max_chunksize: " + str(self.max_chunksize) + "\n"
         rep += "optimizerType: " + str(self.optimizerType) + "\n"
+        rep += "fileCount: " + str(self.file_count) + "\n"
         return rep
 
 

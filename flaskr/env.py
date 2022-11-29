@@ -90,13 +90,14 @@ def simple_apply(x, dist_map):
 
 
 class InfluxData:
-    def __init__(self, file_name=None):
+    def __init__(self, file_name=None, time_window="-2m"):
         self.space_keys = ['active_core_count', 'bytes_recv', 'bytes_sent', 'concurrency', 'dropin', 'dropout', 'jobId',
                            'rtt', 'latency', 'parallelism', 'pipelining', 'jobSize', 'packets_sent', 'packets_recv',
                            'errin', 'errout', 'totalBytesSent', 'memory', 'throughput', 'avgJobSize', 'freeMemory']
 
         self.client = InfluxDBClient.from_config_file("config.ini")
         self.query_api = self.client.query_api()
+        self.time_window_to_query = time_window
 
         self.p = {
             '_APP_NAME': "elvisdav@buffalo.edu-didclab-elvis-uc",
@@ -120,16 +121,12 @@ class InfluxData:
 
     def query_bo_space(self, app_name):
         bucket = str(app_name).split("-")[0] #should be the email part of the APP_Name
-        params = {
-            "BUCKET_NAME": bucket,
-            "_APP_NAME" : app_name,
-        }
         q = '''from(bucket: "{}")
-  |> range(start: -2m)
+  |> range(start: {})
   |> filter(fn: (r) => r["_measurement"] == "transfer_data")
   |> filter(fn: (r) => r["APP_NAME"] == "{}")
   |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
-        '''.format(bucket, app_name)
+        '''.format(bucket,  self.time_window_to_query, app_name)
         print(q)
         data_frame = self.query_api.query_data_frame(q)
         return data_frame
