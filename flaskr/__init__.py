@@ -10,7 +10,6 @@ from os import remove
 from .classes import CreateOptimizerRequest
 from .classes import DeleteOptimizerRequest
 from .classes import InputOptimizerRequest
-from .bo_optimizer import *
 from .agent import *
 
 from .middleware import OptimizerMap
