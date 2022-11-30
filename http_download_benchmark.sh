@@ -22,8 +22,8 @@ display_help() {
   exit 1
 }
 
-conc_para_all_cmd=${1:-concurrency}
-sourcePath=${2:-${HOME}/output/}
+conc_para_all_cmd=${1:-optBench}
+sourcePath=${2:-"/"}
 destPath=${3:-'testData/'}
 total_rounds=${4:-5}
 concurrency_max=${5:-32}
@@ -33,9 +33,9 @@ ods_cli_path=${6:-'/home/cc/odscli/onedatashare.py'}
 vfs_node_id=${7:-'elvisdav@buffalo.edu-didclab-elvis-uc'}
 
 declare -A credIds=(["http"]=httpCCTacc) #this is a map in bash aka an associative array
-optimizers=("BO", "VDA2C")
+optimizers=("BO" "VDA2C")
 
-mkdir ${HOME}/output/
+mkdir -p ${HOME}/output/
 touch ~/.config/rclone/rclone.conf
 printf "
 [httpCCTacc]
@@ -43,7 +43,7 @@ type = http
 url = http://${TACC_IP}:80
 " >>${HOME}/.config/rclone/rclone.conf
 
-python3 ~/odscli/onedatashare.py addRemote cc http://${TACC_IP}:80 http --credentialId=httpCCTacc
+# python3 ~/odscli/onedatashare.py addRemote cc http://${TACC_IP}:80 http --credentialId=httpCCTacc
 
 echo 'Arguments passed: '
 echo 'Source path: ' "$sourcePath"', destRemote: '"$destRemote"', destPath: '"$destPath"', Number of rounds to run: '"$total_rounds"', max concurrency value: '"$concurrency_max" 'max parallelism:'"$max_parallelism"
@@ -74,11 +74,11 @@ function rclone_download() {
   local sourcePath=$3
   local parallelism=${4:-1}
   local destPath=${5:-"/home/cc/output/concurrency"}
-  echo ':'$protocol ' credId:'$credId ' sourcePath:'$sourcePath ' file: /concurrency/' ' destType: vfs destRemoteId: onedatashare@gmail.com-ccuc' ' destPath:'$destPath ' concurrency:' $concurrency
+  echo ':'$protocol ' credId:'$credId ' sourcePath:'$sourcePath ' file: /concurrency/' ' destType: vfs destRemoteId: $vfs_node_id' ' destPath:'$destPath ' concurrency:' $concurrency
 
   rclone copy -vP $credId:$sourcePath $destPath --transfers=$concurrency --multi-thread-streams=$parallelism --ignore-checksum --compress-level=0
 
-  job_size=$(du -sb '/home/cc/output/rclone/concurrency' | awk '{print $1}')
+  job_size=$(du -sb '/mnt/ramdisk/dest' | awk '{print $1}')
   echo 'Total Job size: '$job_size 'bytes'
   local total_seconds=$((SECONDS - start_seconds))
   local throughput=$((total_seconds / job_size))
@@ -108,20 +108,23 @@ function optimizer_bench() {
   end=5
   cc=6
   p=6
-  credId="httpCCTacc"
+  echo "************************running optimizer bench**************************8"
+  credId="nginx"
+  odsCredId="tacc-http"
   for opt in "${optimizers[@]}"; do
     for ((i = 1; i <= $end; i++)); do #runs 5 transfers with BO and then 5 transfers with VDA2C
       echo 'optimizer: ' $opt ', with run round=' $i
-      rclone_download $cc $credId "/" $p $HOME"/home/output/ods/testData" #cc, credId, sourcePath, parallelism, destPath
-      rm -rf ~/output/ods/testData
-      ods_download $cc "http" $credId "/" $p $HOME"/output/ods/testData" $opt # cc, credId, sourcePath, parallelism, destPath, optimizer
-      rm -rf ~/output/ods/testData
+      ods_download $cc "http" $odsCredId "/" $p "/mnt/ramdisk/dest" $opt # cc, credId, sourcePath, parallelism, destPath, optimizer
+      rm -rf /mnt/ramdisk/dest
+      rclone_download $cc $credId "/" $p "/mnt/ramdisk/dest" #cc, credId, sourcePath, parallelism, destPath
+      rm -rf /mnt/ramdisk/dest
     done
   done
 }
 
 function concurrency_bench() {
   end=$total_rounds
+  echo "**************Running concurrency bench ***************************"
   for protocol in "${!credIds[@]}"; do
     for ((i = 1; i <= $end; i++)); do
       for opt in "${optimizers[@]}"; do
@@ -165,8 +168,9 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 case $conc_para_all_cmd in
-opt_bench)
-  opt_bench
+optBench)
+  optimizer_bench
+  ods_send_output
   ;;
 concurrency)
   concurrency_bench
