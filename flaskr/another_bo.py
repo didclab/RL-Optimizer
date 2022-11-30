@@ -59,6 +59,12 @@ class BayesianOptimizerOld():
         measurement_rows = measurement_rows.loc[measurement_rows["parallelism"] > 0]
         measurement_rows = measurement_rows.loc[measurement_rows["jobId"] > 0]
         print(measurement_rows)
+        if len(measurement_rows) < 1:
+            return {
+                "concurrency": input_req.concurrency,
+                "parallelism": input_req.parallelism
+            }
+
         y = np.asarray(measurement_rows['throughput'].mean(), measurement_rows['rtt'].mean())
         x = np.array([measurement_rows['concurrency'].mean(), measurement_rows['parallelism'].mean()])
         print("Inputting points: \n x:{} \n y:{}".format(x,y))
