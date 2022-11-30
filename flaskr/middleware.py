@@ -12,7 +12,7 @@ class OptimizerMap(object):
         self.vda2c = "VDA2C"
         self.bo = "BO"
 
-    def get_optimizer(self, node_id) -> Optimizer:
+    def get_optimizer(self, node_id):
         return self.optimizer_map[node_id]
 
     def create_optimizer(self, create_req: CreateOptimizerRequest, override_max=None):

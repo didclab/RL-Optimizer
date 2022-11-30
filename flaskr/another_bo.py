@@ -65,7 +65,7 @@ class BayesianOptimizerOld():
                 "parallelism": input_req.parallelism
             }
 
-        y = np.asarray(measurement_rows['throughput'].mean(), measurement_rows['rtt'].mean())
+        y = np.asarray(input_req.throughput, measurement_rows['rtt'].mean())
         x = np.array([measurement_rows['concurrency'].mean(), measurement_rows['parallelism'].mean()])
         print("Inputting points: \n x:{} \n y:{}".format(x,y))
         _uf = self.bo_utility_map[input_req.node_id]

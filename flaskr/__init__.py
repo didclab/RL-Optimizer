@@ -129,100 +129,102 @@ def delete_optimizer():
     if request.method == 'POST':
         jd = request.json
         delete_op = DeleteOptimizerRequest(jd['nodeId'])
-        print(delete_op.__str__())
+        if optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.bo:
+            optim_map.delete_optimizer(delete_op, args)
+        elif optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.vda2c:
+            print(delete_op.__str__())
+            global epsilon
+            global start_p
+            global start_c
+            global num_episodes
+            global schedule_thread
+            global transfer_request
+            global fast_slow_switch
+            global log_counts
+            global scheduler
 
-        global epsilon
-        global start_p
-        global start_c
-        global num_episodes
-        global schedule_thread
-        global transfer_request
-        global fast_slow_switch
-        global log_counts
-        global scheduler
-
-        thrput = args.job_size_Gbit / (end - start)  # MOVED TO ARGS
-        print("^^^ JOB TIME", end - start, "SECONDS ^^^")
-        print("THROUGHPUT:", thrput)
-        with open('time.log', 'a') as f:
-            f.write(str(end - start) + "," + str(thrput) + "\n")
-        # print('Waiting for last entries...')
-        # time.sleep(31.)
-        optim_map.delete_optimizer(delete_req=delete_op, args=args)
-        if args.wipe_optimizer_map:
-            optim_map.true_delete(delete_op)
-            scheduler.shutdown()
-            scheduler = BackgroundScheduler()
-        elif not args.evaluate and optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.vda2c:
-            # optim_map.delete_optimizer(delete_op, args)
-            opt = optim_map.get_optimizer(delete_op.node_id)
-            opt.envs._done_switch = True
-            print('Updating distribution...')
-            opt.envs.parameter_dist_map.update_parameter_dist(
-                opt.envs.best_start[0],
-                opt.envs.best_start[1],
-                (thrput / 16) * 15
-            )
-            print("Resetting environment...", epsilon)
-
-            golden_number = random.random()
-            if golden_number < epsilon:
-                sampled_p = random.choice(sample_space)
-                sampled_c = random.choice(sample_space)
-                opt.envs.set_best_action(sampled_p, sampled_c)
-            else:
-                b_a = opt.envs.parameter_dist_map.get_best_parameter()
-                opt.envs.set_best_action(b_a[0], b_a[1])
-
-            opt.reset_obs = opt.envs.reset()
-            start_p = opt.envs.best_start[0]
-            start_c = opt.envs.best_start[1]
-            epsilon = max(0.001, epsilon * epsilon_decay)
-
-            num_episodes += 1
-            if args.limit_runs and args.max_num_episodes < num_episodes:
-                print(num_episodes, ' episodes done. Switching Task...')
-                num_episodes = 0
-                epsilon = 1
-                log_counts[fast_slow_switch] += 1
-                fast_slow_switch = (fast_slow_switch + 1) % args.number_tests
-                transfer_request = args.start_cmd[fast_slow_switch]
-                save_path = os.path.join(args.save_dir, args.algo)
-
-                if fast_slow_switch == 1:
-                    os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/short-time-%d.log" % log_counts[0])
-                    os.system("ssh serv ./restrict_link.sh eno1 2000 10000")
-
-                    model_path = os.path.join(save_path, "unrestricted-%d.pt" % log_counts[0])
-                    mv_command = "mv " + os.path.join(save_path, args.env_name + ".pt") + " " + model_path
-                    os.system(mv_command)
-
-                    with open(os.path.join(save_path, "unrest-sprout-%d.pkl" % log_counts[0]), 'wb') as pkl:
-                        pickle.dump(opt.envs.parameter_dist_map, pkl)
-
-                    print('Switching to slow transfers; Episode', num_episodes)
-                elif fast_slow_switch == 0:
-                    os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d.log" % log_counts[1])
-                    os.system("ssh serv ./free_link.sh eno1")
-
-                    model_path = os.path.join(save_path, "restricted-%d.pt" % log_counts[1])
-                    mv_command = "mv " + os.path.join(save_path, args.env_name + ".pt") + " " + model_path
-                    os.system(mv_command)
-
-                    with open(os.path.join(save_path, "rest-sprout-%d.pkl" % log_counts[1]), 'wb') as pkl:
-                        pickle.dump(opt.envs.parameter_dist_map, pkl)
-
-                    print('Switching to fast transfers; Episode', num_episodes)
-                else:  # dead code for now
-                    os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/longer-time-%d.log" % log_counts[2])
-                    os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
-                    print('Switching to fast transfers; Episode', num_episodes)
+            thrput = args.job_size_Gbit / (end - start)  # MOVED TO ARGS
+            print("^^^ JOB TIME", end - start, "SECONDS ^^^")
+            print("THROUGHPUT:", thrput)
+            with open('time.log', 'a') as f:
+                f.write(str(end - start) + "," + str(thrput) + "\n")
+            # print('Waiting for last entries...')
+            # time.sleep(31.)
+            optim_map.delete_optimizer(delete_req=delete_op, args=args)
+            if args.wipe_optimizer_map:
                 optim_map.true_delete(delete_op)
                 scheduler.shutdown()
                 scheduler = BackgroundScheduler()
-            else:
-                print('Starting Episode', num_episodes, '; Slow switch:', fast_slow_switch)
+            elif not args.evaluate and optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.vda2c:
+                # optim_map.delete_optimizer(delete_op, args)
+                opt = optim_map.get_optimizer(delete_op.node_id)
+                opt.envs._done_switch = True
+                print('Updating distribution...')
+                opt.envs.parameter_dist_map.update_parameter_dist(
+                    opt.envs.best_start[0],
+                    opt.envs.best_start[1],
+                    (thrput / 16) * 15
+                )
+                print("Resetting environment...", epsilon)
 
-            schedule_thread = ScheduleTransfer().start()
-            print("Reset to:", (start_p, start_c))
+                golden_number = random.random()
+                if golden_number < epsilon:
+                    sampled_p = random.choice(sample_space)
+                    sampled_c = random.choice(sample_space)
+                    opt.envs.set_best_action(sampled_p, sampled_c)
+                else:
+                    b_a = opt.envs.parameter_dist_map.get_best_parameter()
+                    opt.envs.set_best_action(b_a[0], b_a[1])
+
+                opt.reset_obs = opt.envs.reset()
+                start_p = opt.envs.best_start[0]
+                start_c = opt.envs.best_start[1]
+                epsilon = max(0.001, epsilon * epsilon_decay)
+
+                num_episodes += 1
+                if args.limit_runs and args.max_num_episodes < num_episodes:
+                    print(num_episodes, ' episodes done. Switching Task...')
+                    num_episodes = 0
+                    epsilon = 1
+                    log_counts[fast_slow_switch] += 1
+                    fast_slow_switch = (fast_slow_switch + 1) % args.number_tests
+                    transfer_request = args.start_cmd[fast_slow_switch]
+                    save_path = os.path.join(args.save_dir, args.algo)
+
+                    if fast_slow_switch == 1:
+                        os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/short-time-%d.log" % log_counts[0])
+                        os.system("ssh serv ./restrict_link.sh eno1 2000 10000")
+
+                        model_path = os.path.join(save_path, "unrestricted-%d.pt" % log_counts[0])
+                        mv_command = "mv " + os.path.join(save_path, args.env_name + ".pt") + " " + model_path
+                        os.system(mv_command)
+
+                        with open(os.path.join(save_path, "unrest-sprout-%d.pkl" % log_counts[0]), 'wb') as pkl:
+                            pickle.dump(opt.envs.parameter_dist_map, pkl)
+
+                        print('Switching to slow transfers; Episode', num_episodes)
+                    elif fast_slow_switch == 0:
+                        os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d.log" % log_counts[1])
+                        os.system("ssh serv ./free_link.sh eno1")
+
+                        model_path = os.path.join(save_path, "restricted-%d.pt" % log_counts[1])
+                        mv_command = "mv " + os.path.join(save_path, args.env_name + ".pt") + " " + model_path
+                        os.system(mv_command)
+
+                        with open(os.path.join(save_path, "rest-sprout-%d.pkl" % log_counts[1]), 'wb') as pkl:
+                            pickle.dump(opt.envs.parameter_dist_map, pkl)
+
+                        print('Switching to fast transfers; Episode', num_episodes)
+                    else:  # dead code for now
+                        os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/longer-time-%d.log" % log_counts[2])
+                        os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
+                        print('Switching to fast transfers; Episode', num_episodes)
+                    optim_map.true_delete(delete_op)
+                    scheduler.shutdown()
+                    scheduler = BackgroundScheduler()
+                else:
+                    print('Starting Episode', num_episodes, '; Slow switch:', fast_slow_switch)
+
+                schedule_thread = ScheduleTransfer().start()
+                print("Reset to:", (start_p, start_c))
     return '', 204
