@@ -79,8 +79,42 @@ def get_joint_gradient(bases, rollouts_arr):
 
 
 class Optimizer(object):
-    def train(self, next_obs, reward, done, info, encoded_action):
+    def train(self, next_obs, reward, done, info, encoded_action, evaluate=False):
         self._eps_reward += reward[0]
+
+        if evaluate:
+            if done:
+                self.writer.add_scalar("Evaluate/episode_reward", self._eps_reward, self.episode_c)
+                self.episode_c += 1
+                self._eps_reward = 0.
+
+                obs = self.reset_obs
+
+                self.rollouts_parallelism.obs[self.cur_step].copy_(obs)
+                self.rollouts_concurrency.obs[self.cur_step].copy_(obs)
+                self.rollouts_parallelism.masks[self.cur_step].copy_(torch.FloatTensor([[1.0]]))
+                self.rollouts_concurrency.masks[self.cur_step].copy_(torch.FloatTensor([[1.0]]))
+
+                with torch.no_grad():
+                    _, self.action_p, _, _ = \
+                        self.actor_critic[0].act(
+                            self.rollouts_parallelism.obs[self.cur_step],
+                            self.rollouts_parallelism.recurrent_hidden_states[self.cur_step],
+                            self.rollouts_parallelism.masks[self.cur_step]
+                        )
+                    _, self.action_c, _, _ = \
+                        self.actor_critic[1].act(
+                            self.rollouts_concurrency.obs[self.cur_step],
+                            self.rollouts_concurrency.recurrent_hidden_states[self.cur_step],
+                            self.rollouts_concurrency.masks[self.cur_step]
+                        )
+
+            self.cur_step += 1
+            self.c += 1
+            self.action_clone_p = self.action_p.clone().detach()
+            self.action_clone_c = self.action_c.clone().detach()
+
+            return self.action_clone_p, self.action_clone_c
 
         masks = torch.FloatTensor(
             [[0.0] if done else [1.0]])
@@ -292,7 +326,7 @@ class Optimizer(object):
             ) for _ in range(2)]
         else:
             save_path = os.path.join(args.save_dir, args.algo)
-            self.actor_critic = torch.load(os.path.join(save_path, args.env_name + ".pt"))[0]
+            self.actor_critic = torch.load(os.path.join(save_path, args.model_name + ".pt"))[0]
 
         for i in range(2):
             self.actor_critic[i].to(device)

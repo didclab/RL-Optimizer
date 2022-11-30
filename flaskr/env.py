@@ -1,9 +1,11 @@
+import os
 from abc import ABC
 
 import gym
 import numpy as np
 import torch
 from pandas import isna, read_csv
+import pickle
 
 from gym import spaces
 from influxdb_client import InfluxDBClient
@@ -183,7 +185,12 @@ class InfluxEnvironment(gym.Env, ABC):
         self._done_ptr = 1
         self._done_switch = False
 
-        self.parameter_dist_map = ParameterDistributionMap(override_max=override_max)
+        if args.new_policy:
+            self.parameter_dist_map = ParameterDistributionMap(override_max=override_max)
+        else:
+            save_path = os.path.join(args.save_dir, args.algo)
+            with open(os.path.join(save_path, args.sprout_name + ".pkl"), 'rb') as f:
+                self.parameter_dist_map = pickle.load(f)
         self.best_start = self.parameter_dist_map.get_best_parameter()
 
         self.current_action = args.starting_action.copy()
@@ -410,7 +417,7 @@ class InfluxEnvironment(gym.Env, ABC):
 
             # Call agent
             self.output_p, self.output_c = self.train_callback(next_observation, (reward_p, reward_c), done, info,
-                                                               encoded_action)
+                                                               encoded_action, evaluate=args.evaluate)
             if done:
                 self._eps_reward = 0.
 
