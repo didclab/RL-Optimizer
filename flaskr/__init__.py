@@ -154,6 +154,8 @@ def delete_optimizer():
         optim_map.delete_optimizer(delete_req=delete_op, args=args)
         if args.wipe_optimizer_map:
             optim_map.true_delete(delete_op)
+            scheduler.shutdown()
+            scheduler = BackgroundScheduler()
         elif not args.evaluate and optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.vda2c:
             # optim_map.delete_optimizer(delete_op, args)
             opt = optim_map.get_optimizer(delete_op.node_id)
