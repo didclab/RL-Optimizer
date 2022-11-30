@@ -48,10 +48,6 @@ class OptimizerMap(object):
         elif self.node_id_to_optimizer[input_req.node_id] == self.bo:
             print("Putting to the BO optimizer")
             return optimizer.input_optimizer(input_req)
-        # elif optimizer_tuple[0] == "SGD":
-        #     sgd_opt = optimizer_tuple[1]
-        # elif optimizer_tuple[0] == "MADDPG":
-        #     maddpg_opt = optimizer_tuple[1]
         return
 
     def delete_optimizer(self, delete_req: DeleteOptimizerRequest, args):
@@ -65,6 +61,7 @@ class OptimizerMap(object):
             torch.save([
                 opt.actor_critic
             ], os.path.join(save_path, args.env_name + ".pt"))
+
 
         elif self.node_id_to_optimizer[delete_req.node_id] == self.bo:
             print("RM Bo optimizer")

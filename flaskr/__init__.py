@@ -108,11 +108,8 @@ def create_optimizer():
                 scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=15)
                 scheduler.start()
 
-        optim_map.create_optimizer(create_opt)
-
-        # else:
-        #     print('Resetting Environment...')
-        #     opt.envs.reset()
+        elif create_opt.optimizerType== optim_map.bo:
+            optim_map.create_optimizer(create_opt)
         return ('', 204)
 
 
