@@ -1,9 +1,11 @@
+import os
 from abc import ABC
 
 import gym
 import numpy as np
 import torch
 from pandas import isna, read_csv
+import pickle
 
 from gym import spaces
 from influxdb_client import InfluxDBClient
@@ -90,13 +92,14 @@ def simple_apply(x, dist_map):
 
 
 class InfluxData:
-    def __init__(self, file_name=None):
+    def __init__(self, file_name=None, time_window="-2m"):
         self.space_keys = ['active_core_count', 'bytes_recv', 'bytes_sent', 'concurrency', 'dropin', 'dropout', 'jobId',
                            'rtt', 'latency', 'parallelism', 'pipelining', 'jobSize', 'packets_sent', 'packets_recv',
                            'errin', 'errout', 'totalBytesSent', 'memory', 'throughput', 'avgJobSize', 'freeMemory']
 
         self.client = InfluxDBClient.from_config_file("config.ini")
         self.query_api = self.client.query_api()
+        self.time_window_to_query = time_window
 
         self.p = {
             '_APP_NAME': "elvisdav@buffalo.edu-didclab-elvis-uc",
@@ -105,17 +108,29 @@ class InfluxData:
 
         self.input_file = file_name
 
-    def query_space(self):
+    def query_space(self, time_window='-2m'):
         q = '''from(bucket: "elvisdav@buffalo.edu")
-  |> range(start: -2m)
+  |> range(start: {})
   |> filter(fn: (r) => r["_measurement"] == "transfer_data")
   |> filter(fn: (r) => r["APP_NAME"] == _APP_NAME)
-  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")'''
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")'''.format(time_window)
 
         data_frame = self.query_api.query_data_frame(q, params=self.p)
         # print(data_frame.tail())
         # print(data_frame.columns)
         # print(data_frame)
+        return data_frame
+
+    def query_bo_space(self, app_name):
+        bucket = str(app_name).split("-")[0] #should be the email part of the APP_Name
+        q = '''from(bucket: "{}")
+  |> range(start: {})
+  |> filter(fn: (r) => r["_measurement"] == "transfer_data")
+  |> filter(fn: (r) => r["APP_NAME"] == "{}")
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+        '''.format(bucket,  self.time_window_to_query, app_name)
+        print(q)
+        data_frame = self.query_api.query_data_frame(q)
         return data_frame
 
     def prune_df(self, df):
@@ -170,7 +185,12 @@ class InfluxEnvironment(gym.Env, ABC):
         self._done_ptr = 1
         self._done_switch = False
 
-        self.parameter_dist_map = ParameterDistributionMap(override_max=override_max)
+        if args.new_policy:
+            self.parameter_dist_map = ParameterDistributionMap(override_max=override_max)
+        else:
+            save_path = os.path.join(args.save_dir, args.algo)
+            with open(os.path.join(save_path, args.sprout_name + ".pkl"), 'rb') as f:
+                self.parameter_dist_map = pickle.load(f)
         self.best_start = self.parameter_dist_map.get_best_parameter()
 
         self.current_action = args.starting_action.copy()
@@ -191,6 +211,15 @@ class InfluxEnvironment(gym.Env, ABC):
 
         self.reg = 0.
         self.episode_count = 0
+
+        if args.evaluate:
+            data = self.influx_client.prune_df(self.influx_client.query_space(time_window='-30m'))
+            filtered_data = data[(data['jobId'] > self._data_keys['jobId']) |
+                                 ((data['jobId'] == self._data_keys['jobId']) & (
+                                         data['bytes_sent'] > self._data_keys['bytes_sent']) &
+                                  (data['concurrency'] > 0))].copy()
+            for o in self._obs_names:
+                self.obs_norm_list[o] += list(filtered_data[o])
 
     def close(self):
         self.influx_client.close_client()
@@ -397,7 +426,7 @@ class InfluxEnvironment(gym.Env, ABC):
 
             # Call agent
             self.output_p, self.output_c = self.train_callback(next_observation, (reward_p, reward_c), done, info,
-                                                               encoded_action)
+                                                               encoded_action, evaluate=args.evaluate)
             if done:
                 self._eps_reward = 0.
 
