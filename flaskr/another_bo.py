@@ -89,10 +89,9 @@ class BayesianOptimizerOld():
         print(delete_req)
         # del bayesian_optimizer_map[delete_req.node_id] dud
         if delete_req.node_id in self.bayesian_optimizer_map:
-            self.bayesian_optimizer_map[delete_req.node_id] = None
+            self.bayesian_optimizer_map.pop(delete_req.node_id)
         if delete_req.node_id in self.bo_utility_map:
-            self.bo_utility_map[delete_req.node_id] = None
-
+            self.bo_utility_map.pop(delete_req.node_id)
         return delete_req.node_id
 
     # Inputs into optimizer the current [concurrency, parallelism, pipelining] as params, and the targets are [

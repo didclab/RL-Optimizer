@@ -62,13 +62,11 @@ class OptimizerMap(object):
                 opt.actor_critic
             ], os.path.join(save_path, args.env_name + ".pt"))
 
-
         elif self.node_id_to_optimizer[delete_req.node_id] == self.bo:
             print("RM Bo optimizer")
-            bo_opt = opt
+            bo_opt = self.optimizer_map[delete_req.node_id]
             bo_opt.delete_optimizer(delete_req)
             bo_opt.close()
-            return delete_req.node_id
 
         return delete_req.node_id
 
