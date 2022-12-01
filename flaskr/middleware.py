@@ -67,6 +67,7 @@ class OptimizerMap(object):
             bo_opt = self.optimizer_map[delete_req.node_id]
             bo_opt.delete_optimizer(delete_req)
             bo_opt.close()
+            self.optimizer_map.pop(delete_req.node_id)
 
         return delete_req.node_id
 
