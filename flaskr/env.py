@@ -108,12 +108,12 @@ class InfluxData:
 
         self.input_file = file_name
 
-    def query_space(self):
+    def query_space(self, time_window='-2m'):
         q = '''from(bucket: "elvisdav@buffalo.edu")
-  |> range(start: -2m)
+  |> range(start: {})
   |> filter(fn: (r) => r["_measurement"] == "transfer_data")
   |> filter(fn: (r) => r["APP_NAME"] == _APP_NAME)
-  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")'''
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")'''.format(time_window)
 
         data_frame = self.query_api.query_data_frame(q, params=self.p)
         # print(data_frame.tail())
@@ -211,6 +211,15 @@ class InfluxEnvironment(gym.Env, ABC):
 
         self.reg = 0.
         self.episode_count = 0
+
+        if args.evaluate:
+            data = self.influx_client.prune_df(self.influx_client.query_space(time_window='-30m'))
+            filtered_data = data[(data['jobId'] > self._data_keys['jobId']) |
+                                 ((data['jobId'] == self._data_keys['jobId']) & (
+                                         data['bytes_sent'] > self._data_keys['bytes_sent']) &
+                                  (data['concurrency'] > 0))].copy()
+            for o in self._obs_names:
+                self.obs_norm_list[o] += list(filtered_data[o])
 
     def close(self):
         self.influx_client.close_client()
