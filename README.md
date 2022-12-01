@@ -32,7 +32,6 @@ There are three HTTP API requests you can submit to this flask server:
   "rtt" : 50 # this is collected through InfluxDb actually
 }
 ```
-
 3.Delete Optimizer
 ```json
 {
