@@ -133,6 +133,8 @@ class InfluxData:
         data_frame = self.query_api.query_data_frame(q)
         return data_frame
 
+
+
     def prune_df(self, df):
         df2 = df[self.space_keys]
         # print(df2.tail())

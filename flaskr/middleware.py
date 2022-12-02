@@ -31,7 +31,10 @@ class OptimizerMap(object):
                 self.node_id_to_optimizer[create_req.node_id] = self.bo
                 return True
             elif create_req.optimizerType == self.tpot:
+                # print(self.node_id_to_optimizer)
                 self.TPOT = tpot_optimizer.TpotOptimizer()
+                self.TPOT.create_optimizer(create_req)
+                self.optimizer_map[create_req.node_id] = self.TPOT
                 self.node_id_to_optimizer[create_req.node_id] = self.tpot
                 return True
             # elif create_req.optimizerType == "SGD":
@@ -55,7 +58,7 @@ class OptimizerMap(object):
             print("Putting to the BO optimizer")
             return optimizer.input_optimizer(input_req)
         elif self.node_id_to_optimizer[input_req.node_id] == self.tpot:
-            return self.TPOT.input_optimizer(input_req)
+            return optimizer.input_optimizer(input_req)
 
         return
 

@@ -8,6 +8,7 @@ from .classes import CreateOptimizerRequest
 from .classes import DeleteOptimizerRequest
 from .classes import InputOptimizerRequest
 import pickle
+import os
 from tpot import TPOTRegressor
 
 
@@ -22,8 +23,9 @@ class TpotOptimizer:
                                'cpu_frequency_max', 'freeMemory', 'jobSize', 'latency', 'memory',
                                'parallelism', 'pipelining', 'rtt', 'totalBytesSent']
 
-        self.influx = InfluxData()
-        with open("./tpot_model.pickle", "rb") as f:
+        self.influx = InfluxData(time_window="-60s")
+        print(os.getcwd())
+        with open("flaskr/tpot_model.pickle", "rb") as f:
             tpot_args = pickle.load(f)
 
         self.tpotModel = TPOTRegressor(template=tpot_args["template"])
@@ -53,31 +55,29 @@ class TpotOptimizer:
 # throughput, rtt]
 # returns the next parameters to use
 
-    def grid_optimizer(self,x, bounds, iters = 500):
+    def grid_optimizer(self,x, bounds, iters = 50):
         res = {}
         counter = 0
-        for i in range(bounds['max_concurrency'][0], bounds['max_concurrency'][1]):
-            for j in range(bounds['max_parallel'][0], bounds['max_parallel'][1]):
-                for k in range(bounds['max_pipesize'][0], bounds['max_pipesize'][1]):
-                    if counter>iters:
+        print('----Optimizing----')
+
+        for i in range(self.bounds['max_concurrency'][0], self.bounds['max_concurrency'][1]):
+            for j in range(self.bounds['max_parallel'][0], self.bounds['max_parallel'][1]):
+                for k in range(self.bounds['max_pipesize'][0], self.bounds['max_pipesize'][1]):
+                    if counter > iters:
                         break
                     combination = (i, j, k)
                     x[5], x[12], x[13] = i,j,k
-                    predicted_throughput = self.tpotModel.predict(x.reshape(1,len(x)))
+                    predicted_throughput = self.tpotModel.predict(x.values.reshape(1, len(x)))
                     res[combination] = predicted_throughput
                     counter += 1
-        return sorted(res.items(), key=lambda x:x[1])
+        return sorted(res.items(), key=lambda x:x[1], reverse = True)
 
 
     def input_optimizer(self, input_req: InputOptimizerRequest):
-        # local_opt = bayesian_optimizer_map[input_req.node_id]
-        print(input_req)
-        x = np.array()
-        for var in self.list_name_variables:
-            x.append(input_req[var])
 
-        opt_result = self.grid_optimizer(x, self.bounds)
-        suggestion = opt_result.keys()[0]
-
+        x = self.influx.query_bo_space(input_req.node_id)
+        x = x[self.list_name_variables]
+        opt_result = self.grid_optimizer(x.iloc[0], self.bounds)
+        suggestion = opt_result[0][0]
+        print(suggestion)
         return suggestion
-
