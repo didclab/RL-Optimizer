@@ -2,7 +2,7 @@ import os
 
 import torch
 
-from flaskr import Optimizer, CreateOptimizerRequest, InputOptimizerRequest, DeleteOptimizerRequest
+from flaskr import Optimizer, CreateOptimizerRequest, InputOptimizerRequest, DeleteOptimizerRequest,tpot_optimizer
 from .another_bo import BayesianOptimizerOld
 
 class OptimizerMap(object):
@@ -11,6 +11,8 @@ class OptimizerMap(object):
         self.node_id_to_optimizer = {}
         self.vda2c = "VDA2C"
         self.bo = "BO"
+        self.tpot = "TPOT"
+
 
     def get_optimizer(self, node_id):
         return self.optimizer_map[node_id]
@@ -27,6 +29,10 @@ class OptimizerMap(object):
                 oldBo.create_optimizer(create_req)
                 self.optimizer_map[create_req.node_id] = oldBo
                 self.node_id_to_optimizer[create_req.node_id] = self.bo
+                return True
+            elif create_req.optimizerType == self.tpot:
+                self.TPOT = tpot_optimizer.TpotOptimizer()
+                self.node_id_to_optimizer[create_req.node_id] = self.tpot
                 return True
             # elif create_req.optimizerType == "SGD":
             #     self.optimizer_map[create_req.node_id] = (create_req.optimizerType,Optimizer(create_req, override_max=override_max))
@@ -48,6 +54,9 @@ class OptimizerMap(object):
         elif self.node_id_to_optimizer[input_req.node_id] == self.bo:
             print("Putting to the BO optimizer")
             return optimizer.input_optimizer(input_req)
+        elif self.node_id_to_optimizer[input_req.node_id] == self.tpot:
+            return self.TPOT.input_optimizer(input_req)
+
         return
 
     def delete_optimizer(self, delete_req: DeleteOptimizerRequest, args):
@@ -68,6 +77,10 @@ class OptimizerMap(object):
             bo_opt.delete_optimizer(delete_req)
             bo_opt.close()
             self.optimizer_map.pop(delete_req.node_id)
+
+        elif self.node_id_to_optimizer[delete_req.node_id] == self.tpot:
+            self.node_id_to_optimizer.pop(delete_req.node_id)
+
 
         return delete_req.node_id
 
