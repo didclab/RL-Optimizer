@@ -11,3 +11,4 @@ h5py
 matplotlib
 stable_baselines3
 pandas
+tpot==0.11.7
