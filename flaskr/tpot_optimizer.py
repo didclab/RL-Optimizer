@@ -41,7 +41,7 @@ def create_optimizer(create_req: CreateOptimizerRequest):
 
 def delete_optimizer(delete_req: DeleteOptimizerRequest):
     print(delete_req)
-    plot_gp(delete_req.node_id)
+    # plot_gp(delete_req.node_id)
     # del bayesian_optimizer_map[delete_req.node_id] dud
     return delete_req.node_id
 
@@ -67,7 +67,7 @@ def grid_optimizer(x, bounds, iters = 500):
 
 
 def input_optimizer(input_req: InputOptimizerRequest, bounds):
-    local_opt = bayesian_optimizer_map[input_req.node_id]
+    # local_opt = bayesian_optimizer_map[input_req.node_id]
     print(input_req)
     x = np.array()
     for var in list_name_variables:

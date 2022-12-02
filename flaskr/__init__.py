@@ -88,28 +88,26 @@ start = time.time()
 
 @app.route('/optimizer/create', methods=['POST'])
 def create_optimizer():
-    global start
-    if request.method == 'POST':
-        json_dict = request.json
-        create_opt = CreateOptimizerRequest(json_dict['nodeId'], json_dict['maxConcurrency'],
-                                            json_dict['maxParallelism'], json_dict['maxPipelining'],
-                                            json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'])
-        print(create_opt.__str__())
-
-        if create_opt.optimizerType == optim_map.vda2c:
-            override = None
-            if fast_slow_switch > 0:
-                override = args.bandwidth_restriction[fast_slow_switch]
-            schedule = optim_map.create_optimizer(create_opt, override_max=override)
-            opt = optim_map.get_optimizer(create_opt.node_id)
-            start = time.time()
-            print("Start Time:", start)
-            if schedule:
-                scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=15)
-                scheduler.start()
-
-        elif create_opt.optimizerType== optim_map.bo:
-            optim_map.create_optimizer(create_opt)
+    # global start
+    # if request.method == 'POST':
+    #     json_dict = request.json
+    #     create_opt = CreateOptimizerRequest(json_dict)
+    #     print(create_opt.__str__())
+    #
+    #     if create_opt.optimizerType == optim_map.vda2c:
+    #         override = None
+    #         if fast_slow_switch > 0:
+    #             override = args.bandwidth_restriction[fast_slow_switch]
+    #         schedule = optim_map.create_optimizer(create_opt, override_max=override)
+    #         opt = optim_map.get_optimizer(create_opt.node_id)
+    #         start = time.time()
+    #         print("Start Time:", start)
+    #         if schedule:
+    #             scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=15)
+    #             scheduler.start()
+    #
+    #     elif create_opt.optimizerType== optim_map.bo:
+    #         optim_map.create_optimizer(create_opt)
         return ('', 204)
 
 
@@ -117,8 +115,7 @@ def create_optimizer():
 def input_to_optimizer():
     if request.method == 'POST':
         jd = request.json
-        input_operation = InputOptimizerRequest(jd['nodeId'], jd['throughput'], jd['rtt'], jd['concurrency'],
-                                                jd['parallelism'], jd['pipelining'], jd['chunkSize'])
+        input_operation = InputOptimizerRequest(jd)
         print(input_operation.__str__())
         return optim_map.input_optimizer(input_operation), 200
 
