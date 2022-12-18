@@ -12,8 +12,6 @@ import os
 from tpot import TPOTRegressor
 
 
-
-
 class TpotOptimizer:
     def __init__(self):
 
@@ -66,7 +64,7 @@ class TpotOptimizer:
                     if counter > iters:
                         break
                     combination = (i, j, k)
-                    x[5], x[12], x[13] = i,j,k
+                    x[5], x[12], x[13] = i, j, k
                     predicted_throughput = self.tpotModel.predict(x.values.reshape(1, len(x)))
                     res[combination] = predicted_throughput
                     counter += 1
@@ -79,5 +77,6 @@ class TpotOptimizer:
         x = x[self.list_name_variables]
         opt_result = self.grid_optimizer(x.iloc[0], self.bounds)
         suggestion = opt_result[0][0]
-        print(suggestion)
-        return suggestion
+        result = {'concurrency': suggestion[0], 'parallelism': suggestion[1], 'pipesize': suggestion[2]}
+        print(result)
+        return result
