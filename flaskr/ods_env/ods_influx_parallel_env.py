@@ -2,8 +2,6 @@ import functools
 
 import gymnasium
 import numpy as np
-import pandas as pd
-from gymnasium.spaces import Discrete
 
 from pettingzoo import ParallelEnv
 from influx_query import InfluxData
@@ -28,21 +26,22 @@ def env(render_mode=None):
     return env
 
 
-def raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gmail.com-mac-mini", time_window="-2m", render_mode=None):
+#This is the creator for pettingzoo wrappers. The commented line hides the properties for some reason
+def raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gmail.com-mac-mini", time_window="-2m", render_mode=None, action_space_discrete=False):
     """
     To support the AEC API, the raw_env() function just uses the from_parallel
     function to convert from a ParallelEnv to an AEC env
     """
-    influxData = InfluxData(bucket_name=bucket_name,transfer_node_name=transfer_node_name,file_name=None, time_window=time_window)
-    env = parallel_env(influx_client=influxData, render_mode=render_mode)
-    env = parallel_to_aec(env)
+    influx_client = InfluxData(bucket_name=bucket_name,transfer_node_name=transfer_node_name,file_name=None, time_window=time_window)
+    env = parallel_env(influx_client=influx_client, render_mode=render_mode, action_space_discrete=action_space_discrete)
+    # env = parallel_to_aec(env)
     return env
 
 
 class parallel_env(ParallelEnv):
     metadata = {"render_modes": ["human"], "name": "rps_v2"}
 
-    def __init__(self, influx_client, reward_function=lambda rtt, thrpt: (RTT*thrpt), action_space_discrete=False, render_mode=None, time_window="-7d",cc_max=64, pp_max=50, p_max=64, ):
+    def __init__(self, influx_client, reward_function=lambda rtt, thrpt: (rtt*thrpt), action_space_discrete=False, render_mode=None, time_window="-7d",cc_max=64, pp_max=50, p_max=64):
         """
         The init method takes in environment arguments and should define the following attributes:
         - possible_agents
@@ -51,9 +50,9 @@ class parallel_env(ParallelEnv):
         These attributes should not be changed after initialization.
         """
         self.possible_agents = ["agent_concurrency", "agent_parallelism", "agent_pipelining"]
-        self.influx_data = influx_client
-        self.space_df = self.influx_data.query_space(time_window) #gets last 7 days worth of data. Gonna be a lil slow to create
-        self.data_columns = list(self.space_df.columns.values)
+        self.influx_client = influx_client
+        self.space_df = self.influx_client.query_space(time_window) #gets last 7 days worth of data. Gonna be a lil slow to create
+        self.data_columns = self.space_df.columns.values
         self.cc_max = cc_max
         self.pp_max = pp_max
         self.p_max = p_max
@@ -70,23 +69,15 @@ class parallel_env(ParallelEnv):
             }
         else:
             #here each agent can decide to go up or down for one of the three optimizeable properties
-            self._action_spaces = dict(
-                zip(
-                    self.agents,
-                    [gymnasium.spaces.Discrete(n=3)],
-                )
-            )
+            self._action_spaces = {
+                self.possible_agents[0]: gymnasium.spaces.Discrete(n=3),
+                self.possible_agents[1]: gymnasium.spaces.Discrete(n=3),
+                self.possible_agents[2]: gymnasium.spaces.Discrete(n=3),
+            }
         self.past_rewards = []
         self.past_actions = []
         #each agent has a continuous obs space of the influx data columns
-        self._observation_spaces = dict(
-            zip(
-                self.agents,
-                [
-                    gymnasium.spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),))
-                ]
-            )
-        )
+        self._observation_spaces = gymnasium.spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),))
         self.render_mode = render_mode
 
     # this cache ensures that same space object is returned for the same agent
@@ -113,7 +104,7 @@ class parallel_env(ParallelEnv):
 
         if len(self.agents) == 3:
             #select last row in the df and display it.
-            str = self.influx_data.iloc[-5]
+            str = self.space_df.iloc[-5]
         else:
             #if there are no agents then we are not running
             str = "Game over"
@@ -125,8 +116,8 @@ class parallel_env(ParallelEnv):
         or any other environment data which should not be kept around after the
         user is no longer using the environment.
         """
-        self.influx_data.close_client()
-        self.influx_data = None
+        self.influx_client.close_client()
+        self.space_df = None
 
     def reset(self, seed=None, return_info=False, options=None):
         """
@@ -139,13 +130,13 @@ class parallel_env(ParallelEnv):
         Returns the observations for each agent
         """
         self.agents = self.possible_agents[:]
-        four_min_df = self.influx_data.query_space("-5m")
-        self.influx_data.append(four_min_df)
-        self.influx_data.drop_duplicates(inplace=True)
+        four_min_df = self.influx_client.query_space("-5m")
+        self.space_df.append(four_min_df)
+        self.space_df.drop_duplicates(inplace=True)
         self.past_rewards = []
         self.past_actions = []
         #Needs to launch a transfer. Prob write a manual api request to ODS.
-        last_row = self.influx_data.iloc[-1]
+        last_row = self.space_df.iloc[-1]
         observations = dict(zip(
             self.agents,
             last_row
@@ -166,36 +157,34 @@ class parallel_env(ParallelEnv):
         - infos: not sure from the tutorial
         dicts where each dict looks like {agent_1: item_1, agent_2: item_2}
         """
-        # If a user passes in actions with no agents, then just return empty observations, etc.
+        # If an agent passes in actions with no agents, then just return empty observations, etc.
         if not actions:
             self.agents = []
             return {}, {}, {}, {}, {}
         #re-query influx and add it to the space
-        self.past_actions.append(actions)
         #https://ai.stackexchange.com/questions/12551/openai-gym-interface-when-reward-calculation-is-delayed-continuous-control-wit
         #Rl is meant to deal with the temporal time problem of CAP credit assignment problem which really means that agents should figure out the actions that lead to a certain outcome
-        #Here we need to block until we get a tuple that matches the expected one or a null value for cc,p,pp when the job finishes.
-        self.take_action(actions)
+        self.past_actions.append(actions)
+        #Here we need to push the changed app parameters to the proper queue which is transfer-node-name
 
-        newer_df = self.influx_data.query_space("-5m") #get the last5 min of data.
-        self.influx_data.append(newer_df)
-        self.influx_data.drop_duplicates(inplace=True)
+        newer_df = self.influx_client.query_space("-5m") #get the last5 min of data.
+        self.space_df.append(newer_df)
+        self.space_df.drop_duplicates(inplace=True)
 
+        #observations are the same for all agents
+        last_row = self.space_df.tail(n=1)
         observations = dict(zip(
-            self.agents, [self.influx_data.iloc[-1]]
+            self.agents, [last_row]
         ))
-
-        last_row = self.influx_data.tail(n=1)
         #lambda cc,pp,p,ck, RTT, thrpt
 
+        #Here we need to use monitoring API to know when the job is formally done vs when its running very slow
         if last_row['sourceType'] is None or last_row['write_throughput'] is None:
             #then we are done
             terminations = dict(zip(self.agents,[True]))
             return observations, None, terminations, None
         else:
             terminations = dict(zip(self.agents,[False]))
-        #I think the job is done when the next row from the df has null values: destType, jobId, sourceType,
-
         if last_row['write_throughput'] < last_row['read_throughput']:
             thrpt = last_row['write_throughput']
             rtt = last_row['destination_rtt']
@@ -217,6 +206,8 @@ class parallel_env(ParallelEnv):
             [last_row['concurrency'], last_row['parallelism'], last_row['pipelining']]
         ))
 
-        # if self.render_mode == "human":
-        #     self.render()
         return observations, rewards, terminations, truncations, None
+
+    def next_cached_action(self):
+        if len(self.agent_actions_cache)>0:
+            return self.agent_actions_cache.pop()

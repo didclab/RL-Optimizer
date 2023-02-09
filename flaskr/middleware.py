@@ -3,6 +3,7 @@ import os
 import torch
 
 from flaskr import Optimizer, CreateOptimizerRequest, InputOptimizerRequest, DeleteOptimizerRequest
+from ods_env import ods_influx_parallel_env
 from .another_bo import BayesianOptimizerOld
 
 class OptimizerMap(object):
@@ -11,7 +12,7 @@ class OptimizerMap(object):
         self.node_id_to_optimizer = {}
         self.vda2c = "VDA2C"
         self.bo = "BO"
-
+        self.maddpg = "MADDPG"
     def get_optimizer(self, node_id):
         return self.optimizer_map[node_id]
 
@@ -31,12 +32,14 @@ class OptimizerMap(object):
             # elif create_req.optimizerType == "SGD":
             #     self.optimizer_map[create_req.node_id] = (create_req.optimizerType,Optimizer(create_req, override_max=override_max))
             #     return True
-            # elif create_req.optimizerType == "MADDPG":
-            #     self.optimizer_map[create_req.node_id] = (create_req.optimizerType,Optimizer(create_req, override_max=override_max))
-            #     return True
+            elif create_req.optimizerType == "MADDPG":
+                env = ods_influx_parallel_env.raw_env() #for now b/c its me the defaults for the env should be fine
+                env.reset()
+                self.node_id_to_optimizer[create_req.node_id] = self.maddpg
+                self.optimizer_map[create_req.node_id] = ["optimizer_agent_here", env] #the map should store the agent to the env as the value
+                return True
             else:
                 return False
-            # Initialize Optimizer
         else:
             print("Optimizer already exists for", create_req.node_id)
             return False
@@ -48,6 +51,10 @@ class OptimizerMap(object):
         elif self.node_id_to_optimizer[input_req.node_id] == self.bo:
             print("Putting to the BO optimizer")
             return optimizer.input_optimizer(input_req)
+        elif self.node_id_to_optimizer[input_req.node_id] == self.maddpg:
+            print("MADDPG getting next params for TS")
+            agent_env_dict = self.optimizer_map[input_req.node_id]
+            return agent_env_dict[1].agent_actions_cache.pop()
         return
 
     def delete_optimizer(self, delete_req: DeleteOptimizerRequest, args):
@@ -68,6 +75,11 @@ class OptimizerMap(object):
             bo_opt.delete_optimizer(delete_req)
             bo_opt.close()
             self.optimizer_map.pop(delete_req.node_id)
+
+        elif self.node_id_to_optimizer[delete_req.node_id] == self.maddpg:
+            print("RM MADDPG we are not deleting just resetting the env so it can keep training")
+            env = self.optimizer_map[delete_req.node_id][1]
+            env.reset()
 
         return delete_req.node_id
 

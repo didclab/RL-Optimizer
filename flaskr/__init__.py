@@ -108,14 +108,18 @@ def create_optimizer():
                 scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=15)
                 scheduler.start()
 
-        elif create_opt.optimizerType== optim_map.bo:
+        elif create_opt.optimizerType == optim_map.bo:
+            optim_map.create_optimizer(create_opt)
+
+        elif create_opt.optimizerType == optim_map.maddpg:
+            #creates the optimizer maddpg
             optim_map.create_optimizer(create_opt)
         return ('', 204)
 
 
-@app.route('/optimizer/input', methods=['POST'])
+@app.route('/optimizer/parameters', methods=['GET'])
 def input_to_optimizer():
-    if request.method == 'POST':
+    if request.method == 'GET':
         jd = request.json
         input_operation = InputOptimizerRequest(jd['nodeId'], jd['throughput'], jd['rtt'], jd['concurrency'],
                                                 jd['parallelism'], jd['pipelining'], jd['chunkSize'])
