@@ -13,7 +13,7 @@ class TransferParams(object):
 
 class SendTransferParams:
     def __init__(self, user, pwd):
-
+        pass
 
     def send_params(self, queue_name, transfer_params=TransferParams):
-
+        pass

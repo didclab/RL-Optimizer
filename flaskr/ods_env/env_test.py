@@ -23,8 +23,6 @@ def test_step():
     env = raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gmail.com-mac", time_window="-7d")
     env.reset()
     env.step(None)
-    for agent_id in env.possible_agents:
-
     env.step()
 
 
