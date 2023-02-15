@@ -21,13 +21,32 @@ def test_env_reset():
 
 def test_step():
     env = raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gmail.com-mac", time_window="-7d")
+    print(env.space_df)
+    print(env._action_spaces)
     env.reset()
     env.step(None)
-    env.step()
+    test_action = {
+        "agent_concurrency":1,
+        "agent_parallelism":1,
+        "agent_pipelining":1,
+    }
+    obs, rewards, termination, trunctions, _ =env.step(test_action)
+    print(obs)
+    print(rewards)
+    print(termination)
+    print(trunctions)
 
-
+def test_send_application_params():
+    env = raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gmail.com-mac", time_window="-7d")
+    env.reset()
+    obs, rewards, terminations, trunctionation, _ = env.step({
+        "agent_concurrency":1,
+        "agent_parallelism":1,
+        "agent_pipelining":1,
+    })
+    print("Obserations:", obs)
+    print("Rewards:",rewards)
+    print("Terminations:",terminations)
 
 if __name__ == "__main__":
-    confirm_env_created()
-    test_env_reset()
-    test_step()
+    test_send_application_params()
