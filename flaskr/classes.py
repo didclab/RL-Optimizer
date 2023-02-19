@@ -1,5 +1,6 @@
 class CreateOptimizerRequest(object):
-    def __init__(self, node_id, max_concurrency, max_parallelism, max_pipesize, max_chunk_size, optimizer_type, file_count):
+    def __init__(self, node_id, max_concurrency, max_parallelism, max_pipesize, max_chunk_size, optimizer_type,
+                 file_count):
         self.node_id = node_id
         self.max_concurrency = max_concurrency  # upper limit on concurrency count
         self.max_parallelism = max_parallelism  # upper limit on parallelism count
@@ -50,3 +51,4 @@ class DeleteOptimizerRequest(object):
         rep = "DeleteOptimizerRequest object\n"
         rep += "node_id: " + self.node_id + "\n"
         return rep
+

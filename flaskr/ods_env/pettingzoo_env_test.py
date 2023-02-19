@@ -1,6 +1,6 @@
 from ods_influx_parallel_env import raw_env
-
-
+from ods_influx_parallel_env import InfluxData
+import matplotlib.pyplot as plt
 def confirm_env_created():
     #continuous action space tests
     env = raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gmail.com-mac", time_window="-7d")
@@ -48,5 +48,11 @@ def test_send_application_params():
     print("Rewards:",rewards)
     print("Terminations:",terminations)
 
+def test_query_job_is_done():
+    env = raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gmail.com-mac", time_window="-7d")
+    env.reset()
+    print(env.query_if_job_done(12267))
+
+
 if __name__ == "__main__":
-    test_send_application_params()
+    test_query_job_is_done()

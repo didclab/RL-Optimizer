@@ -1,23 +1,15 @@
 import functools
-import json
-import os
 
 import gymnasium
 import numpy as np
-import requests
 import pandas as pd
 
 from pettingzoo import ParallelEnv
+
+from flaskr.ods_env.ods_helper import send_application_params_tuple, query_if_job_done
 from influx_query import InfluxData
 from pettingzoo.utils import parallel_to_aec, wrappers
 
-class TransferApplicationParams(object):
-    def __init__(self, transferNodeName, cc, pp, p, chunkSize):
-        self.transferNodeName = transferNodeName
-        self.concurrency = cc
-        self.parallelism = p
-        self.pipelining = pp
-        self.chunkSize = chunkSize
 
 def env(render_mode=None):
     """
@@ -38,14 +30,17 @@ def env(render_mode=None):
     return env
 
 
-#This is the creator for pettingzoo wrappers. The commented line hides the properties for some reason
-def raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gmail.com-mac", time_window="-2m", render_mode=None, action_space_discrete=False):
+# This is the creator for pettingzoo wrappers. The commented line hides the properties for some reason
+def raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gmail.com-mac", time_window="-2m",
+            render_mode=None, action_space_discrete=False):
     """
     To support the AEC API, the raw_env() function just uses the from_parallel
     function to convert from a ParallelEnv to an AEC env
     """
-    influx_client = InfluxData(bucket_name=bucket_name,transfer_node_name=transfer_node_name,file_name=None, time_window=time_window)
-    env = parallel_env(influx_client=influx_client, render_mode=render_mode, action_space_discrete=action_space_discrete)
+    influx_client = InfluxData(bucket_name=bucket_name, transfer_node_name=transfer_node_name, file_name=None,
+                               time_window=time_window)
+    env = parallel_env(influx_client=influx_client, render_mode=render_mode,
+                       action_space_discrete=action_space_discrete)
     # env = parallel_to_aec(env)
     return env
 
@@ -53,7 +48,8 @@ def raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gma
 class parallel_env(ParallelEnv):
     metadata = {"render_modes": ["human"], "name": "rps_v2"}
 
-    def __init__(self, influx_client, reward_function=lambda rtt, thrpt: (rtt*thrpt), action_space_discrete=False, render_mode=None, time_window="-7d",cc_max=64, pp_max=50, p_max=64):
+    def __init__(self, influx_client, reward_function=lambda rtt, thrpt: (rtt * thrpt), action_space_discrete=False,
+                 render_mode=None, time_window="-7d", cc_max=64, pp_max=50, p_max=64):
         """
         The init method takes in environment arguments and should define the following attributes:
         - possible_agents
@@ -63,24 +59,26 @@ class parallel_env(ParallelEnv):
         """
         self.possible_agents = ["agent_concurrency", "agent_parallelism", "agent_pipelining"]
         self.influx_client = influx_client
-        self.space_df = self.influx_client.query_space(time_window) #gets last 7 days worth of data. Gonna be a lil slow to create
+        self.space_df = self.influx_client.query_space(
+            time_window)  # gets last 7 days worth of data. Gonna be a lil slow to create
         self.data_columns = self.space_df.columns.values
         self.cc_max = cc_max
         self.pp_max = pp_max
         self.p_max = p_max
         self.action_space_discrete = action_space_discrete
-        self.reward_function = reward_function #this function is then used to evaluate the obs space of the last entry
+        self.reward_function = reward_function  # this function is then used to evaluate the obs space of the last entry
         self.agent_actions_cache = []
+        self.batch_info = None
 
         if not action_space_discrete:
-            #each agent has 1D action space which is continuous
+            # each agent has 1D action space which is continuous
             self._action_spaces = {
-                self.possible_agents[0]: gymnasium.spaces.Box(low=1, high=self.cc_max, shape=(1,)), #concurrency agent
-                self.possible_agents[1]: gymnasium.spaces.Box(low=1, high=self.p_max, shape=(1,)), #parallel agent
-                self.possible_agents[2]: gymnasium.spaces.Box(low=1, high=self.pp_max, shape=(1,)) #pipelining agent
+                self.possible_agents[0]: gymnasium.spaces.Box(low=1, high=self.cc_max, shape=(1,)),  # concurrency agent
+                self.possible_agents[1]: gymnasium.spaces.Box(low=1, high=self.p_max, shape=(1,)),  # parallel agent
+                self.possible_agents[2]: gymnasium.spaces.Box(low=1, high=self.pp_max, shape=(1,))  # pipelining agent
             }
         else:
-            #here each agent can decide to go up or down for one of the three optimizeable properties
+            # here each agent can decide to go up or down for one of the three optimizeable properties
             self._action_spaces = {
                 self.possible_agents[0]: gymnasium.spaces.Discrete(n=3),
                 self.possible_agents[1]: gymnasium.spaces.Discrete(n=3),
@@ -88,7 +86,7 @@ class parallel_env(ParallelEnv):
             }
         self.past_rewards = []
         self.past_actions = []
-        #each agent has a continuous obs space of the influx data columns
+        # each agent has a continuous obs space of the influx data columns
         self._observation_spaces = gymnasium.spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),))
         self.render_mode = render_mode
 
@@ -115,10 +113,10 @@ class parallel_env(ParallelEnv):
             return
 
         if len(self.agents) == 3:
-            #select last row in the df and display it.
+            # select last row in the df and display it.
             str = self.space_df.iloc[-5]
         else:
-            #if there are no agents then we are not running
+            # if there are no agents then we are not running
             str = "Game over"
         print(str)
 
@@ -145,9 +143,12 @@ class parallel_env(ParallelEnv):
         four_min_df = self.influx_client.query_space("-5m")
         self.space_df.append(four_min_df)
         self.space_df.drop_duplicates(inplace=True)
+        print("Past_Actions Taken", self.past_actions)
+        print("Past_Rewards", self.past_rewards)
+
         self.past_rewards = []
         self.past_actions = []
-        #Needs to launch a transfer. Prob write a manual api request to ODS.
+        # Needs to launch a transfer. Prob write a manual api request to ODS.
         last_row = self.space_df.iloc[-1]
         observations = dict(zip(
             self.agents,
@@ -173,30 +174,38 @@ class parallel_env(ParallelEnv):
         if not actions:
             self.agents = []
             return {}, {}, {}, {}, {}
-        #re-query influx and add it to the space
-        #https://ai.stackexchange.com/questions/12551/openai-gym-interface-when-reward-calculation-is-delayed-continuous-control-wit
-        #Rl is meant to deal with the temporal time problem of CAP credit assignment problem which really means that agents should figure out the actions that lead to a certain outcome
+        # re-query influx and add it to the space
+        # https://ai.stackexchange.com/questions/12551/openai-gym-interface-when-reward-calculation-is-delayed-continuous-control-wit
+        # Rl is meant to deal with the temporal time problem of CAP credit assignment problem which really means that agents should figure out the actions that lead to a certain outcome
         self.past_actions.append(actions)
-        #Here we need to push the changed app parameters to the proper queue which is transfer-node-name
-        self.send_application_params_tuple(actions['agent_concurrency'], actions['agent_parallelism'], actions['agent_pipelining'])
-        newer_df = self.influx_client.query_space("-5m") #get the last5 min of data.
+        # Here we need to push the changed app parameters to the proper queue which is transfer-node-name
+        send_application_params_tuple(actions['agent_concurrency'], actions['agent_parallelism'],
+                                      actions['agent_pipelining'])
+        newer_df = self.influx_client.query_space("-5m")  # get the last5 min of data.
         self.space_df.append(newer_df)
         self.space_df.drop_duplicates(inplace=True)
 
-        #observations are the same for all agents
+        # observations are the same for all agents
         last_row = self.space_df.tail(n=1)
         observations = dict(zip(
             self.agents, [last_row]
         ))
-        print("Observations: \n",observations)
-        #lambda cc,pp,p,ck, RTT, thrpt
-        #Here we need to use monitoring API to know when the job is formally done vs when its running very slow
-        if pd.isna(last_row['sourceType'].iloc[-1]) or pd.isna(last_row['write_throughput'].iloc[-1]):
-            #then we are done
-            terminations = dict(zip(self.agents,[True]))
-            return observations, None, terminations, None
+        truncations = {
+            "agent_concurrency": last_row['concurrency'].iloc[-1],
+            "agent_parallelism": last_row['parallelism'].iloc[-1],
+            "agent_pipelininig": last_row['pipelining'].iloc[-1]
+        }
+        print("Observations: \n", observations)
+        # lambda cc,pp,p,ck, RTT, thrpt
+        # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
+        status, batch_info = query_if_job_done(last_row['jobId'])
+        self.batch_info = batch_info
+        if status:
+            # then we are done
+            terminations = dict.fromkeys(self.agents, True)
         else:
-            terminations = dict(zip(self.agents,[False]))
+            terminations = dict.fromkeys(self.agents, False)
+
         if last_row['write_throughput'].iloc[-1] < last_row['read_throughput'].iloc[-1]:
             thrpt = last_row['write_throughput'].iloc[-1]
             rtt = last_row['destination_rtt'].iloc[-1]
@@ -204,31 +213,9 @@ class parallel_env(ParallelEnv):
             thrpt = last_row['read_throughput'].iloc[-1]
             rtt = last_row['source_rtt'].iloc[-1]
 
-        reward = self.reward_function(rtt, thrpt) #this reward is of the last influx column which is mapped to that observation so this is the past time steps not the current actions rewards
-        rewards = {}
-        for agent in self.agents:
-            rewards[agent] = reward
+        reward = self.reward_function(rtt,
+                                      thrpt)  # this reward is of the last influx column which is mapped to that observation so this is the past time steps not the current actions rewards
+        rewards = dict.fromkeys(self.agents, reward)
         self.past_rewards.append(rewards)
 
-        # typically there won't be any information in the infos, but there must
-        # still be an entry for each agent
-        truncations = dict(zip(
-            self.agents,
-            [last_row['concurrency'].iloc[-1], last_row['parallelism'].iloc[-1], last_row['pipelining'].iloc[-1]]
-        ))
-
         return observations, rewards, terminations, truncations, None
-
-    def next_cached_action(self):
-        if len(self.agent_actions_cache)>0:
-            return self.agent_actions_cache.pop()
-
-    def send_application_params_tuple(self, cc, p, pp, chunkSize=0):
-        # url = os.getenv("TRANSFER_SCHEDULER_URL")
-        url = "http://18.118.88.8:8061/apply/application/params"
-        params = TransferApplicationParams(self.influx_client.transfer_node_name, cc, p, pp, chunkSize)
-        json_str = json.dumps(params.__dict__)
-        print(json_str)
-        return requests.put(url=url, data=json_str, headers={
-            "Content-Type": "application/json"
-        })
