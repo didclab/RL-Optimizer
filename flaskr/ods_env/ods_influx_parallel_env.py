@@ -1,14 +1,12 @@
 import functools
+import secrets
 
 import gymnasium
 import numpy as np
-import pandas as pd
-
+import ods_helper
 from pettingzoo import ParallelEnv
-
-from flaskr.ods_env.ods_helper import send_application_params_tuple, query_if_job_done
 from influx_query import InfluxData
-from pettingzoo.utils import parallel_to_aec, wrappers
+from pettingzoo.utils import wrappers
 
 
 def env(render_mode=None):
@@ -43,6 +41,8 @@ def raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gma
                        action_space_discrete=action_space_discrete)
     # env = parallel_to_aec(env)
     return env
+
+job_id_list = []
 
 
 class parallel_env(ParallelEnv):
@@ -93,9 +93,9 @@ class parallel_env(ParallelEnv):
     # this cache ensures that same space object is returned for the same agent
     # allows action space seeding to work as expected
     @functools.lru_cache(maxsize=None)
-    def observation_space(self, agent):
+    def observation_space(self):
         # gymnasium spaces are defined and documented here: https://gymnasium.farama.org/api/spaces/
-        return self._observation_spaces[agent]
+        return self._observation_spaces
 
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent):
@@ -136,9 +136,11 @@ class parallel_env(ParallelEnv):
         Here it initializes the `num_moves` variable which counts the number of
         hands that are played.
 
-        ODS is doing something special, reset means we simply add to the influx data with the most recent entries.
-        Returns the observations for each agent
+        So im thinking that reset() is actually going to re-run some jobId. Which jobId I think will be a random one from a pool
+        where each jobId represents a transfer with some kind of focus(parallelism, pipelining, concurrency, mixed datasets, etc).
+        This pool can really just be a list of jobIds where the env selects a random one based on the seed specified.
         """
+
         self.agents = self.possible_agents[:]
         four_min_df = self.influx_client.query_space("-5m")
         self.space_df.append(four_min_df)
@@ -148,7 +150,12 @@ class parallel_env(ParallelEnv):
 
         self.past_rewards = []
         self.past_actions = []
-        # Needs to launch a transfer. Prob write a manual api request to ODS.
+
+        job_id = secrets.choice(job_id_list) #from list of job_ids select a random jobId to run
+        batch_info = ods_helper.query_job_batch_obj(job_id) #get batch metadata for this job.
+        print("Next jobId:{} with MetaData from CDB:\n {}", job_id, batch_info)
+        ods_helper.submit_transfer_request(batch_info) #submit job_id to run.
+
         last_row = self.space_df.iloc[-1]
         observations = dict(zip(
             self.agents,
@@ -179,8 +186,8 @@ class parallel_env(ParallelEnv):
         # Rl is meant to deal with the temporal time problem of CAP credit assignment problem which really means that agents should figure out the actions that lead to a certain outcome
         self.past_actions.append(actions)
         # Here we need to push the changed app parameters to the proper queue which is transfer-node-name
-        send_application_params_tuple(actions['agent_concurrency'], actions['agent_parallelism'],
-                                      actions['agent_pipelining'])
+        ods_helper.send_application_params_tuple(actions['agent_concurrency'], actions['agent_parallelism'],
+                                                 actions['agent_pipelining'])
         newer_df = self.influx_client.query_space("-5m")  # get the last5 min of data.
         self.space_df.append(newer_df)
         self.space_df.drop_duplicates(inplace=True)
@@ -198,10 +205,11 @@ class parallel_env(ParallelEnv):
         print("Observations: \n", observations)
         # lambda cc,pp,p,ck, RTT, thrpt
         # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
-        status, batch_info = query_if_job_done(last_row['jobId'])
+        status, batch_info = ods_helper.query_if_job_done(last_row['jobId'])
         self.batch_info = batch_info
         if status:
-            # then we are done
+            # then we are done and the agent needs to call reset() which will re-run a specified jobId?
+            # job naturally finished
             terminations = dict.fromkeys(self.agents, True)
         else:
             terminations = dict.fromkeys(self.agents, False)
@@ -213,8 +221,8 @@ class parallel_env(ParallelEnv):
             thrpt = last_row['read_throughput'].iloc[-1]
             rtt = last_row['source_rtt'].iloc[-1]
 
-        reward = self.reward_function(rtt,
-                                      thrpt)  # this reward is of the last influx column which is mapped to that observation so this is the past time steps not the current actions rewards
+        # this reward is of the last influx column which is mapped to that observation so this is the past time steps not the current actions rewards
+        reward = self.reward_function(rtt, thrpt)
         rewards = dict.fromkeys(self.agents, reward)
         self.past_rewards.append(rewards)
 
