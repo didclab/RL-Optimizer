@@ -3,9 +3,9 @@ import os
 import torch
 
 from flaskr import Optimizer, CreateOptimizerRequest, InputOptimizerRequest, DeleteOptimizerRequest
-from ods_env import ods_influx_parallel_env
-from .another_bo import BayesianOptimizerOld
-
+from .ods_env import ods_influx_parallel_env
+from flaskr.another_bo import BayesianOptimizerOld
+from flaskr.runner import Trainer
 
 class OptimizerMap(object):
     def __init__(self):
@@ -14,6 +14,7 @@ class OptimizerMap(object):
         self.vda2c = "VDA2C"
         self.bo = "BO"
         self.maddpg = "MADDPG"
+        self.ddpg="DDPG"
 
     def get_optimizer(self, node_id):
         return self.optimizer_map[node_id]
@@ -34,13 +35,20 @@ class OptimizerMap(object):
             # elif create_req.optimizerType == "SGD":
             #     self.optimizer_map[create_req.node_id] = (create_req.optimizerType,Optimizer(create_req, override_max=override_max))
             #     return True
-            elif create_req.optimizerType == "MADDPG":
+            elif create_req.optimizerType == self.maddpg:
                 env = ods_influx_parallel_env.raw_env()  # for now b/c its me the defaults for the env should be fine
                 env.reset()  # this reset needs to not launch a job as we are just creating the env
                 self.node_id_to_optimizer[create_req.node_id] = self.maddpg
-                self.optimizer_map[create_req.node_id] = ["optimizer_agent_here",
-                                                          env]  # the map should store the agent to the env as the value
+                self.optimizer_map[create_req.node_id] = ["optimizer_agent_here",env]  # the map should store the agent to the env as the value
                 return True
+            elif create_req.optimizerType == self.ddpg:
+
+                trainer = Trainer()
+                self.node_id_to_optimizer[create_req.node_id] = self.ddpg
+                self.optimizer_map[create_req.node_id] = trainer
+                trainer.thread_train()
+
+
             else:
                 return False
         else:
@@ -83,6 +91,10 @@ class OptimizerMap(object):
             print("RM MADDPG we are not deleting just resetting the env so it can keep training")
             env = self.optimizer_map[delete_req.node_id][1]
             env.reset()  # this reset should actually construct a new to run.
+
+        elif self.node_id_to_optimizer[delete_req.node_id] == self.ddpg:
+            env = self.optimizer_map[delete_req.node_id][1]
+            env.reset(options={'launch_job':True})
 
         return delete_req.node_id
 

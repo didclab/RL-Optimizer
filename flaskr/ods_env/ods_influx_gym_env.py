@@ -3,7 +3,7 @@ from gym import spaces
 import numpy as np
 from flaskr.classes import CreateOptimizerRequest
 import flaskr.ods_env.ods_helper as oh
-import env_utils
+import flaskr.ods_env.env_utils
 from flaskr.ods_env.influx_query import InfluxData
 
 headers = {"Content-Type": "application/json"}
@@ -11,7 +11,7 @@ headers = {"Content-Type": "application/json"}
 
 class InfluxEnv(gym.Env):
 
-    def __init__(self, create_opt_req=CreateOptimizerRequest(), reward_function=lambda rtt, thrpt: (rtt * thrpt),
+    def __init__(self, create_opt_req=CreateOptimizerRequest, reward_function=lambda rtt, thrpt: (rtt * thrpt),
                  action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns = []):
         super(InfluxEnv, self).__init__()
         self.create_opt_request = create_opt_req

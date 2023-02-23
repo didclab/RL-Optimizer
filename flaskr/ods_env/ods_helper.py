@@ -5,6 +5,15 @@ import json
 headers = {"Content-Type": "application/json"}
 
 
+COMPLETED = "COMPLETED"
+STARTING ="STARTING"
+STARTED = "STARTED"
+STOPPING = "STOPPING"
+STOPPED = "STOPPED"
+FAILED = "FAILED"
+ABANDONED = "ABANDONED"
+UNKNOWN = "UNKNOWN"
+
 class TransferApplicationParams(object):
     def __init__(self, transferNodeName, cc, pp, p, chunkSize):
         self.transferNodeName = transferNodeName
@@ -112,7 +121,15 @@ queries if the jobId is done. JobId we get from influx information.
 def query_if_job_done(jobId):
     resp = query_job_batch_obj(jobId)
     status = resp.json()['status']
-    if status == "COMPLETED" or status == "FAILED" or status == "ABANDONED":
+    if status == COMPLETED or status == FAILED or status == ABANDONED:
+        return True, resp.json()
+    else:
+        return False, resp.json()
+
+def query_if_job_running(jobId):
+    resp = query_job_batch_obj(jobId)
+    status = resp.json()['status']
+    if status == STARTING or status == STARTED:
         return True, resp.json()
     else:
         return False, resp.json()

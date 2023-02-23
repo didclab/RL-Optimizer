@@ -114,6 +114,10 @@ def create_optimizer():
         elif create_opt.optimizerType == optim_map.maddpg:
             #creates the optimizer maddpg
             optim_map.create_optimizer(create_opt)
+
+        elif create_opt.optimizerType == optim_map.ddpg:
+            optim_map.create_optimizer(create_opt)
+
         return ('', 204)
 
 
@@ -134,6 +138,8 @@ def delete_optimizer():
         jd = request.json
         delete_op = DeleteOptimizerRequest(jd['nodeId'])
         if optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.bo:
+            optim_map.delete_optimizer(delete_op)
+        elif optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.ddpg:
             optim_map.delete_optimizer(delete_op, args)
         elif optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.vda2c:
             print(delete_op.__str__())
