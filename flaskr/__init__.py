@@ -93,7 +93,7 @@ def create_optimizer():
         json_dict = request.json
         create_opt = CreateOptimizerRequest(json_dict['nodeId'], json_dict['maxConcurrency'],
                                             json_dict['maxParallelism'], json_dict['maxPipelining'],
-                                            json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'])
+                                            json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'], json_dict['jobId'])
         print(create_opt.__str__())
 
         if create_opt.optimizerType == optim_map.vda2c:

@@ -92,7 +92,7 @@ sched_ip = os.getenv("TRANSFER_SCHEDULER_IP", default="localhost")
 
 def send_application_params_tuple(cc, p, pp, transfer_node_name, chunkSize=0):
     url = "http://{}:8061/apply/application/params".format(sched_ip)
-    params = TransferApplicationParams(transfer_node_name, cc, p, pp, chunkSize)
+    params = TransferApplicationParams(transferNodeName=transfer_node_name, cc=cc, p=p, pp=pp, chunkSize=chunkSize)
     json_str = json.dumps(params.__dict__)
     print(json_str)
     return requests.put(url=url, data=json_str, headers=headers)

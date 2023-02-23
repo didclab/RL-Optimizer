@@ -6,6 +6,7 @@ from flaskr import Optimizer, CreateOptimizerRequest, InputOptimizerRequest, Del
 from ods_env import ods_influx_parallel_env
 from .another_bo import BayesianOptimizerOld
 
+
 class OptimizerMap(object):
     def __init__(self):
         self.optimizer_map = {}
@@ -13,6 +14,7 @@ class OptimizerMap(object):
         self.vda2c = "VDA2C"
         self.bo = "BO"
         self.maddpg = "MADDPG"
+
     def get_optimizer(self, node_id):
         return self.optimizer_map[node_id]
 
@@ -33,10 +35,11 @@ class OptimizerMap(object):
             #     self.optimizer_map[create_req.node_id] = (create_req.optimizerType,Optimizer(create_req, override_max=override_max))
             #     return True
             elif create_req.optimizerType == "MADDPG":
-                env = ods_influx_parallel_env.raw_env() #for now b/c its me the defaults for the env should be fine
-                env.reset()
+                env = ods_influx_parallel_env.raw_env()  # for now b/c its me the defaults for the env should be fine
+                env.reset()  # this reset needs to not launch a job as we are just creating the env
                 self.node_id_to_optimizer[create_req.node_id] = self.maddpg
-                self.optimizer_map[create_req.node_id] = ["optimizer_agent_here", env] #the map should store the agent to the env as the value
+                self.optimizer_map[create_req.node_id] = ["optimizer_agent_here",
+                                                          env]  # the map should store the agent to the env as the value
                 return True
             else:
                 return False
@@ -79,7 +82,7 @@ class OptimizerMap(object):
         elif self.node_id_to_optimizer[delete_req.node_id] == self.maddpg:
             print("RM MADDPG we are not deleting just resetting the env so it can keep training")
             env = self.optimizer_map[delete_req.node_id][1]
-            env.reset()
+            env.reset()  # this reset should actually construct a new to run.
 
         return delete_req.node_id
 

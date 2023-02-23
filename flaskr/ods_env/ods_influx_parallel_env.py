@@ -42,7 +42,7 @@ def raw_env(bucket_name="jgoldverg@gmail.com", transfer_node_name="jgoldverg@gma
     # env = parallel_to_aec(env)
     return env
 
-job_id_list = []
+job_id_list = [12267] #this needs to be lets say the 10 most recent jobs from the user?
 
 
 class parallel_env(ParallelEnv):
@@ -87,15 +87,19 @@ class parallel_env(ParallelEnv):
         self.past_rewards = []
         self.past_actions = []
         # each agent has a continuous obs space of the influx data columns
-        self._observation_spaces = gymnasium.spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),))
+        self._observation_spaces = {
+            self.possible_agents[0]: gymnasium.spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),)),
+            self.possible_agents[1]: gymnasium.spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),)),
+            self.possible_agents[2]: gymnasium.spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),))
+        }
         self.render_mode = render_mode
 
     # this cache ensures that same space object is returned for the same agent
     # allows action space seeding to work as expected
     @functools.lru_cache(maxsize=None)
-    def observation_space(self):
+    def observation_space(self, agent):
         # gymnasium spaces are defined and documented here: https://gymnasium.farama.org/api/spaces/
-        return self._observation_spaces
+        return self._observation_spaces[agent]
 
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent):
@@ -140,7 +144,6 @@ class parallel_env(ParallelEnv):
         where each jobId represents a transfer with some kind of focus(parallelism, pipelining, concurrency, mixed datasets, etc).
         This pool can really just be a list of jobIds where the env selects a random one based on the seed specified.
         """
-
         self.agents = self.possible_agents[:]
         four_min_df = self.influx_client.query_space("-5m")
         self.space_df.append(four_min_df)
@@ -151,7 +154,7 @@ class parallel_env(ParallelEnv):
         self.past_rewards = []
         self.past_actions = []
 
-        job_id = secrets.choice(job_id_list) #from list of job_ids select a random jobId to run
+        job_id = secrets.choice(job_id_list) #select a random job. Instead we are going to use a difficulty score. More on this later.
         batch_info = ods_helper.query_job_batch_obj(job_id) #get batch metadata for this job.
         print("Next jobId:{} with MetaData from CDB:\n {}", job_id, batch_info)
         ods_helper.submit_transfer_request(batch_info) #submit job_id to run.
