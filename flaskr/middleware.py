@@ -42,11 +42,12 @@ class OptimizerMap(object):
                 self.optimizer_map[create_req.node_id] = ["optimizer_agent_here",env]  # the map should store the agent to the env as the value
                 return True
             elif create_req.optimizerType == self.ddpg:
-
-                trainer = Trainer()
+                trainer = Trainer(create_opt_request=create_req)
+                print("Created trainer")
                 self.node_id_to_optimizer[create_req.node_id] = self.ddpg
                 self.optimizer_map[create_req.node_id] = trainer
-                trainer.thread_train()
+                print("trainer thread method getting called")
+                trainer.train()
 
 
             else:

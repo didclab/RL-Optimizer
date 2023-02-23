@@ -11,20 +11,23 @@ headers = {"Content-Type": "application/json"}
 
 class InfluxEnv(gym.Env):
 
-    def __init__(self, create_opt_req=CreateOptimizerRequest, reward_function=lambda rtt, thrpt: (rtt * thrpt),
+    def __init__(self, create_opt_req, reward_function=lambda rtt, thrpt: (rtt * thrpt),
                  action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns = []):
         super(InfluxEnv, self).__init__()
         self.create_opt_request = create_opt_req
-        bucket_name = create_opt_req.node_id.split("-")[1]
+        print(create_opt_req.node_id.split("-"))
+        bucket_name = create_opt_req.node_id.split("-")[0]
         self.influx_client = InfluxData(bucket_name=bucket_name, transfer_node_name=create_opt_req.node_id,
                                         file_name=None, time_window=time_window)
         # gets last 7 days worth of data. Gonna be a lil slow to create
+        print("querying the space df")
         self.space_df = self.influx_client.query_space(time_window)
         self.job_id = create_opt_req.job_id
         if len(observation_columns) > 0:
             self.data_columns = observation_columns
         else:
             self.data_columns = self.space_df.columns.values
+        print("obs space columns are: {}", self.data_columns)
         self.reward_function = reward_function  # this function is then used to evaluate the obs space of the last entry
         if action_space_discrete:
             self.action_space = spaces.Discrete(3)  # drop stay increase
@@ -36,6 +39,7 @@ class InfluxEnv(gym.Env):
         self.past_actions = []
         self.render_mode = render_mode
         self.past_job_ids = []
+        print("Finished constructing the Influx Gym Env")
 
     """
     Stepping the env and a live transfer behind the scenes.
@@ -49,6 +53,7 @@ class InfluxEnv(gym.Env):
     def step(self, action):
         if not action:
             return {}, {}, {}, {}
+        print("Step: action:", action)
         oh.send_application_params_tuple(action['concurrency'], action['parallelism'], action['pipelining'], 0)
 
         self.past_actions.append(action)

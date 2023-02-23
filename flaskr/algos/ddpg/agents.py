@@ -17,6 +17,8 @@ class DDPGAgent(object):
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters())
 
     def select_action(self, state):
+        print("State Type: ", type(state), "Actual state: \n", state)
+
         state = torch.FloatTensor(state.reshape(1, -1)).to(self.device)
         return self.actor(state).cpu().data.numpy().flatten()
 

@@ -1,3 +1,5 @@
+import time
+
 import torch
 import numpy as np
 import os
@@ -7,7 +9,7 @@ from flaskr import classes
 from .algos.ddpg import agents
 from .algos.ddpg import memory
 from .algos.ddpg import utils
-import flaskr.ods_env.ods_helper as ods
+from .ods_env import ods_helper as ods
 
 
 class Trainer(object):
@@ -25,7 +27,7 @@ class Trainer(object):
             os.mkdir('./models')
         except Exception as e:
             pass
-        self.worker_thread = Thread(target=self.train, args=(max_episodes, batch_size, update_policy_time_steps))
+        # self.worker_thread = Thread(target=self.train, args=(max_episodes, batch_size, update_policy_time_steps))
 
 
     #creates a worker to start running training and then joins when the model is done training
@@ -33,23 +35,34 @@ class Trainer(object):
     def thread_train(self):
         #check if job is running
         running, meta = ods.query_if_job_running(self.create_opt_request.job_id)
-        if not running:
-            #submit job if it is not running
-            ods.submit_transfer_request(meta)
+        print("jobId:", self.create_opt_request.job_id, " has status: ", meta['status'])
+
         #start worker threads to begin training
-        self.worker_thread.start()
-        self.worker_thread.join()
+        # print("Worker thread is starting")
+        # self.worker_thread.start()
+        # self.worker_thread.join()
+        # print("Worker thread is joining back ing")
+        self.train()
         return self.evaluate()
 
 
     #the very first call to train already has a job running
     def train(self, max_episodes=100, batch_size=64, update_policy_time_steps=20, launch_job=False):
+        running, meta = ods.query_if_job_running(self.create_opt_request.job_id)
+        if not running:
+            # submit job if it is not running
+            print("Submitting jobId: ", self.create_opt_request.job_id, " to run again")
+            resp = ods.submit_transfer_request(meta)
+            time.sleep(10)
+            print("Transfer-Scheduler response: ", resp)
+        print("Inside of train")
         options = {'launch_job': launch_job}
         state = self.env.reset(options=options) #no seed the first time
         episode_reward = 0
         episode_num = 0
         episode_ts = 0
         episode_rewards = []
+        print("Inside of train")
         #iterate until we hit max jobs
         while episode_num < max_episodes:
             action = (self.agent.select_action(np.array(state)))
