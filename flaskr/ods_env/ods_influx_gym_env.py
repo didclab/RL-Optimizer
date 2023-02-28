@@ -1,18 +1,33 @@
 import gym
 from gym import spaces
 import numpy as np
+import pandas
 from flaskr.classes import CreateOptimizerRequest
 import flaskr.ods_env.ods_helper as oh
-import flaskr.ods_env.env_utils
+from flaskr.ods_env import env_utils
 from flaskr.ods_env.influx_query import InfluxData
 
 headers = {"Content-Type": "application/json"}
 
+# display all the  rows
+pandas.set_option('display.max_rows', None)
+
+# display all the  columns
+pandas.set_option('display.max_columns', None)
+
+# set width  - 100
+pandas.set_option('display.width', 100)
+
+# set column header -  left
+pandas.set_option('display.colheader_justify', 'left')
+
+# set precision - 5
+pandas.set_option('display.precision', 5)
 
 class InfluxEnv(gym.Env):
 
     def __init__(self, create_opt_req, reward_function=lambda rtt, thrpt: (rtt * thrpt),
-                 action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns = []):
+                 action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns=[]):
         super(InfluxEnv, self).__init__()
         self.create_opt_request = create_opt_req
         print(create_opt_req.node_id.split("-"))
@@ -27,7 +42,7 @@ class InfluxEnv(gym.Env):
             self.data_columns = observation_columns
         else:
             self.data_columns = self.space_df.columns.values
-        print("obs space columns are: {}", self.data_columns)
+        print("obs space columns are:", self.data_columns)
         self.reward_function = reward_function  # this function is then used to evaluate the obs space of the last entry
         if action_space_discrete:
             self.action_space = spaces.Discrete(3)  # drop stay increase
@@ -51,11 +66,9 @@ class InfluxEnv(gym.Env):
     """
 
     def step(self, action):
-        if not action:
+        if not action.all():
             return {}, {}, {}, {}
         print("Step: action:", action)
-        oh.send_application_params_tuple(action['concurrency'], action['parallelism'], action['pipelining'], 0)
-
         self.past_actions.append(action)
         self.past_actions.append(action)
 
@@ -70,36 +83,49 @@ class InfluxEnv(gym.Env):
         print("Observation: \n", observation)
 
         # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
-        terminated ,_ = oh.query_if_job_done(last_row['jobId'])
+        if 'jobId' in last_row:
+            terminated, _ = oh.query_if_job_done(last_row['jobId'])
+        else:
+            terminated, _ = oh.query_if_job_done(self.create_opt_request.job_id)
+
         thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
+
+        if action[0] < 1 or action[1] < 1 or action[2]< 1:
+            reward = -100
+        else:
+            reward = self.reward_function(rtt, thrpt)
+            oh.send_application_params_tuple(action[0], action[1], action[2], 0)
+
         # this reward is of the last influx column which is mapped to that observation so this is the past time steps not the current actions rewards
-        reward = self.reward_function(rtt,thrpt)
         self.past_rewards.append(reward)
-        return observation, reward, terminated, None, {}
+        return observation, reward, terminated, None
 
     """
     So right now this does not launch another job. It simply resets the observation space to the last jobs influx entries
     """
-    def reset(self, seed=None, options={'launch_job':False}):
+
+    def reset(self, seed=None, options={'launch_job': False}):
         print("Past Actions: ", self.past_actions)
         print("Past Rewards: ", self.past_rewards)
         self.past_actions.clear()
         self.past_rewards.clear()
-        #env launches the last job again.
+        # env launches the last job again.
         newer_df = self.influx_client.query_space("-5m")  # last min is 2 points.
         self.space_df.append(newer_df)
         self.space_df.drop_duplicates(inplace=True)
         self.space_df.dropna(inplace=True)
-        last_row = self.space_df.tail(n=1)
-        #will implement a job difficulty score and then based on that run harder jobs and update based on Agent performance
+        print("Reset(): space_df shape:", self.space_df.shape)
+        obs = self.space_df[self.data_columns].tail(n=1)
+        print("Reset(): obs shape: ", obs.shape)
+        # will implement a job difficulty score and then based on that run harder jobs and update based on Agent performance
         if options['launch_job']:
             first_meta_data = oh.query_job_batch_obj(self.create_opt_request.job_id)
             oh.submit_transfer_request(first_meta_data)
-            #Here I would want to compute the transfers difficulty which we could measure
+            # Here I would want to compute the transfers difficulty which we could measure
             self.past_job_ids.append(self.job_id)
             self.job_id += 1
 
-        return last_row, {}
+        return obs, {}
 
     """
     So this will support 3 writing modes:
@@ -107,13 +133,14 @@ class InfluxEnv(gym.Env):
     graph: writes graphs of the df information and past actions and rewards
     ansi: prints the df information to standard out.
     """
+
     def render(self, mode="None"):
         print("Viewing the graphs on influxdb is probably best but here is stuff from the last epoch")
         print("Rewards: thrpt*rtt", self.past_rewards)
         print("Data")
         plot = self.space_df.plot(columns=self.data_columns)
         fig = plot.get_figure()
-        plt_file_name = '../plots/'+self.create_opt_request.node_id+"_"+str(self.job_id)+str('_.png')
+        plt_file_name = '../plots/' + self.create_opt_request.node_id + "_" + str(self.job_id) + str('_.png')
         fig.savefig(plt_file_name)
 
     """

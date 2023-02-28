@@ -1,5 +1,6 @@
 import time
 
+import numpy
 import torch
 import numpy as np
 import os
@@ -13,11 +14,19 @@ from .ods_env import ods_helper as ods
 
 
 class Trainer(object):
-    def __init__(self, create_opt_request=classes.CreateOptimizerRequest, max_episodes=100, batch_size=64, update_policy_time_steps=20):
-        self.obs_cols = []
+    def __init__(self, create_opt_request=classes.CreateOptimizerRequest, max_episodes=100, batch_size=64,
+                 update_policy_time_steps=20):
+        self.obs_cols = ['active_core_count', 'allocatedMemory',
+                         'bytes_recv', 'bytes_sent', 'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
+                         'dropin', 'dropout', 'errin', 'errout', 'freeMemory', 'maxMemory', 'memory',
+                         'packet_loss_rate', 'packets_recv',
+                         'packets_sent', 'bytesDownloaded', 'bytesUploaded', 'chunkSize', 'concurrency',
+                         'destination_latency', 'destination_rtt',
+                         'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt',
+                         'write_throughput']
         self.device = torch.device('mps' if torch.cuda.is_available() else 'cpu')
         self.create_opt_request = create_opt_request
-        self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request,time_window="-1d")
+        self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-1d", observation_columns=self.obs_cols)
         state_dim = self.env.observation_space.shape[0]
         action_dim = self.env.action_space.shape[0]
         self.agent = agents.DDPGAgent(state_dim=state_dim, action_dim=action_dim, device=self.device, max_action=None)
@@ -27,47 +36,42 @@ class Trainer(object):
             os.mkdir('./models')
         except Exception as e:
             pass
+        self.training_flag = False
         # self.worker_thread = Thread(target=self.train, args=(max_episodes, batch_size, update_policy_time_steps))
 
+    # creates a worker to start running training and then joins when the model is done training
+    # runs evaluate on main thread as that should be super fast.
+    # def thread_train(self):
+    #     # check if job is running
+    #     running, meta = ods.query_if_job_running(self.create_opt_request.job_id)
+    #     print("jobId:", self.create_opt_request.job_id, " has status: ", meta['status'])
+    #     # start worker threads to begin training
+    #     # print("Worker thread is starting")
+    #     # self.worker_thread.start()
+    #     # self.worker_thread.join()
+    #     # print("Worker thread is joining back ing")
+    #     self.train()
+    #     return self.evaluate()
 
-    #creates a worker to start running training and then joins when the model is done training
-    #runs evaluate on main thread as that should be super fast.
-    def thread_train(self):
-        #check if job is running
-        running, meta = ods.query_if_job_running(self.create_opt_request.job_id)
-        print("jobId:", self.create_opt_request.job_id, " has status: ", meta['status'])
-
-        #start worker threads to begin training
-        # print("Worker thread is starting")
-        # self.worker_thread.start()
-        # self.worker_thread.join()
-        # print("Worker thread is joining back ing")
-        self.train()
-        return self.evaluate()
-
-
-    #the very first call to train already has a job running
+    # the very first call to train already has a job running
     def train(self, max_episodes=100, batch_size=64, update_policy_time_steps=20, launch_job=False):
-        running, meta = ods.query_if_job_running(self.create_opt_request.job_id)
-        if not running:
-            # submit job if it is not running
-            print("Submitting jobId: ", self.create_opt_request.job_id, " to run again")
-            resp = ods.submit_transfer_request(meta)
-            time.sleep(10)
-            print("Transfer-Scheduler response: ", resp)
+        self.training_flag = True
         print("Inside of train")
         options = {'launch_job': launch_job}
-        state = self.env.reset(options=options) #no seed the first time
+        state = self.env.reset(options=options)  # no seed the first time
+        print("State in train(): ", state , "\t", "type: ", type(state))
+        state = state[0]
+        state = np.asarray(a=state, dtype=numpy.float64)
         episode_reward = 0
         episode_num = 0
         episode_ts = 0
         episode_rewards = []
-        print("Inside of train")
-        #iterate until we hit max jobs
+        # iterate until we hit max jobs
         while episode_num < max_episodes:
             action = (self.agent.select_action(np.array(state)))
+            print("train(): ",action, " the action type: ", type(action))
             prev_state, prev_reward, terminated, _ = self.env.step(action)
-            episode_ts+=1
+            episode_ts += 1
             self.replay_buffer.add(state, action, prev_state, prev_reward, terminated)
             state = prev_state
             episode_reward += prev_reward
@@ -78,9 +82,10 @@ class Trainer(object):
                 episode_reward = 0
                 episode_ts = 0
 
-            if episode_ts % update_policy_time_steps==0:
+            if episode_ts % update_policy_time_steps == 0:
                 self.agent.train(self.replay_buffer, batch_size)
 
+        self.training_flag = False
         return episode_rewards
 
     def evaluate(self):
@@ -88,8 +93,7 @@ class Trainer(object):
         self.agent.save_checkpoint(f"./models/{self.save_file_name}")
         return avg_reward
 
-
-
-
-
-
+    def set_create_request(self, create_opt_req):
+        print("Updating the create_optimizer request in trainer and env to be: ", create_opt_req.__str__())
+        self.create_opt_request = create_opt_req
+        self.env.create_opt_request = create_opt_req

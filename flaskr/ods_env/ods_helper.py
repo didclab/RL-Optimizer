@@ -4,15 +4,16 @@ import json
 
 headers = {"Content-Type": "application/json"}
 
-
 COMPLETED = "COMPLETED"
-STARTING ="STARTING"
+STARTING = "STARTING"
 STARTED = "STARTED"
 STOPPING = "STOPPING"
 STOPPED = "STOPPED"
 FAILED = "FAILED"
 ABANDONED = "ABANDONED"
 UNKNOWN = "UNKNOWN"
+RUNNING = "RUNNING"
+
 
 class TransferApplicationParams(object):
     def __init__(self, transferNodeName, cc, pp, p, chunkSize):
@@ -126,23 +127,20 @@ def query_if_job_done(jobId):
     else:
         return False, resp.json()
 
+
 def query_if_job_running(jobId):
     resp = query_job_batch_obj(jobId)
     status = resp.json()['status']
-    if status == STARTING or status == STARTED:
+    if status == STARTING or status == STARTED or status == RUNNING:
         return True, resp.json()
     else:
         return False, resp.json()
 
 
-"""
-Needs to transform the batch_info_json to a TransferJobRequest
-"""
-
-
 def submit_transfer_request(batch_info_json):
     url = "http://{}:8061/receiveRequest".format(sched_ip)
-    return requests.post(url=url, data=transform_batch_info_json_to_transfer_request(batch_info_json).toJSON(), headers=headers)
+    return requests.post(url=url, data=transform_batch_info_json_to_transfer_request(batch_info_json).toJSON(),
+                         headers=headers)
 
 
 def transform_batch_info_json_to_transfer_request(batch_info_json):

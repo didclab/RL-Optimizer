@@ -1,11 +1,13 @@
 import os
-
+import time
 import torch
+import flaskr.ods_env.ods_helper as oh
 
 from flaskr import Optimizer, CreateOptimizerRequest, InputOptimizerRequest, DeleteOptimizerRequest
 from .ods_env import ods_influx_parallel_env
 from flaskr.another_bo import BayesianOptimizerOld
 from flaskr.runner import Trainer
+
 
 class OptimizerMap(object):
     def __init__(self):
@@ -42,17 +44,24 @@ class OptimizerMap(object):
                 self.optimizer_map[create_req.node_id] = ["optimizer_agent_here",env]  # the map should store the agent to the env as the value
                 return True
             elif create_req.optimizerType == self.ddpg:
+                result, meta = oh.query_if_job_running(create_req.job_id)
+                if not result:
+                    oh.submit_transfer_request(meta)
+                    time.sleep(15)
                 trainer = Trainer(create_opt_request=create_req)
                 print("Created trainer")
                 self.node_id_to_optimizer[create_req.node_id] = self.ddpg
                 self.optimizer_map[create_req.node_id] = trainer
-                print("trainer thread method getting called")
+
                 trainer.train()
-
-
             else:
                 return False
         else:
+            if create_req.optimizerType == self.ddpg:
+                trainer = self.optimizer_map[create_req.node_id]
+                trainer.set_create_request(create_opt_req=create_req)
+                if not trainer.training_flag:
+                    trainer.train()
             print("Optimizer already exists for", create_req.node_id)
             return False
 

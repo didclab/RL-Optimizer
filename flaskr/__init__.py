@@ -85,12 +85,20 @@ atexit.register(at_exit)
 app = Flask(__name__)
 start = time.time()
 
+@app.route('/optimizer/create/training', methods=['POST'])
+def create_optimizer_training():
+    if request.method == 'POST':
+        json_dict = request.json
+        print(json_dict)
+        create_opt = CreateOptimizerRequest(json_dict['nodeId'], json_dict['optimizerType'], json_dict['oldJobId'])
+        print(create_opt.__str__())
 
 @app.route('/optimizer/create', methods=['POST'])
 def create_optimizer():
     global start
     if request.method == 'POST':
         json_dict = request.json
+        print(json_dict)
         create_opt = CreateOptimizerRequest(json_dict['nodeId'], json_dict['maxConcurrency'],
                                             json_dict['maxParallelism'], json_dict['maxPipelining'],
                                             json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'], json_dict['jobId'])

@@ -1,6 +1,6 @@
 import pandas as pd
 from pandas import read_csv
-
+import time
 from influxdb_client import InfluxDBClient
 
 
@@ -16,16 +16,28 @@ class InfluxData:
 
         self.input_file = file_name
 
-    def query_space(self, time_window='-2m'):
+    def query_space(self, time_window='-2m', keys_to_expect=['bytesDownloaded', 'bytesUploaded', 'chunkSize', 'concurrency', 'destination_latency', 'destination_rtt', 'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt', 'write_throughput']):
         q = '''from(bucket: "{}")
   |> range(start: {})
   |> filter(fn: (r) => r["_measurement"] == "transfer_data")
   |> filter(fn: (r) => r["APP_NAME"] == "{}")
   |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
   '''.format(self.bucket_name,time_window, self.transfer_node_name)
-        df = self.query_api.query_data_frame(q)
-        if type(df) == list:
-            df = pd.concat(df, axis=0, ignore_index=True)
+        done = False
+        while not done:
+            df = self.query_api.query_data_frame(q)
+            if type(df) == list:
+                df = pd.concat(df, axis=0, ignore_index=True)
+
+            if df.empty:
+                time.sleep(1)
+                continue
+            if not all([item in list(df.columns) for item in keys_to_expect]):
+                time.sleep(1)
+                continue
+            else:
+                done = True
+
         return df
 
     def prune_df(self, df):

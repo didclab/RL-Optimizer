@@ -1,5 +1,9 @@
 from copy import deepcopy
+
+import numpy
+
 from .models import *
+import numpy as np
 #
 #found this here: https://github.com/soumik12345/DDPG/tree/master/configs
 #
@@ -17,10 +21,9 @@ class DDPGAgent(object):
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters())
 
     def select_action(self, state):
-        print("State Type: ", type(state), "Actual state: \n", state)
-
         state = torch.FloatTensor(state.reshape(1, -1)).to(self.device)
         return self.actor(state).cpu().data.numpy().flatten()
+        #
 
     @staticmethod
     def soft_update(local_model, target_model, tau):
