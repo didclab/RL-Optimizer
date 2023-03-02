@@ -3,15 +3,19 @@ import numpy as np
 
 
 def evaluate_policy(policy, env, seed, eval_episodes=10, render=False):
-    avg_reward = 0.
+    state = env.reset()[0]
+    env.render()
+    episodes_reward = []
+    terminated = False
     for _ in range(eval_episodes):
-        options = {'launch_job':True}
-        state, done = env.reset(options=options), False
-        while not done:
+
+        state = env.reset()[0]
+        episode_reward = 0
+        while not terminated:
             action = policy.select_action(np.array(state))
-            if render:
-                env.render()
-            state, reward, done, _ = env.step(action)
-            avg_reward += reward
-    avg_reward /= eval_episodes
-    return avg_reward
+            next_state, reward, terminated, truncated, info = env.step(action)
+            episode_reward += reward
+            state = next_state
+        episodes_reward.append(episode_reward)
+
+    return np.mean(episodes_reward)
