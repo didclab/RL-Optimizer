@@ -101,8 +101,11 @@ sched_ip = os.getenv("TRANSFER_SCHEDULER_IP", default="localhost")
 
 
 def send_application_params_tuple(cc, p, pp, transfer_node_name, chunkSize=0):
+    cc = int(cc)
+    p = int(p)
+    pp = int(pp)
     url = "http://{}:8061/apply/application/params".format(sched_ip)
-    params = TransferApplicationParams(transferNodeName=transfer_node_name, cc=cc, p=p, pp=pp, chunkSize=chunkSize)
+    params = TransferApplicationParams(transferNodeName=transfer_node_name, cc=str(cc), p=str(p), pp=str(pp), chunkSize=chunkSize)
     json_str = json.dumps(params.__dict__)
     print(json_str)
     return requests.put(url=url, data=json_str, headers=headers)
@@ -111,7 +114,7 @@ def send_application_params_tuple(cc, p, pp, transfer_node_name, chunkSize=0):
 def query_job_batch_obj(jobId):
     url = "http://{}:8084/api/v1/meta/stat".format(monitor_ip)
     params = {"jobId": jobId}
-    return requests.get(url=url, params=params, headers=headers)
+    return requests.get(url=url, params=params, headers=headers).json()
 
 
 """
@@ -120,21 +123,21 @@ queries if the jobId is done. JobId we get from influx information.
 
 
 def query_if_job_done(jobId):
-    resp = query_job_batch_obj(jobId)
-    status = resp.json()['status']
+    meta_data = query_job_batch_obj(jobId)
+    status = meta_data['status']
     if status == COMPLETED or status == FAILED or status == ABANDONED:
-        return True, resp.json()
+        return True, meta_data
     else:
-        return False, resp.json()
+        return False, meta_data
 
 
 def query_if_job_running(jobId):
-    resp = query_job_batch_obj(jobId)
-    status = resp.json()['status']
+    meta_data = query_job_batch_obj(jobId)
+    status = meta_data['status']
     if status == STARTING or status == STARTED or status == RUNNING:
-        return True, resp.json()
+        return True, meta_data
     else:
-        return False, resp.json()
+        return False, meta_data
 
 
 def submit_transfer_request(batch_info_json):

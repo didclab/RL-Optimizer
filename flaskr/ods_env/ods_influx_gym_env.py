@@ -6,6 +6,8 @@ from flaskr.classes import CreateOptimizerRequest
 import flaskr.ods_env.ods_helper as oh
 from flaskr.ods_env import env_utils
 from flaskr.ods_env.influx_query import InfluxData
+import requests
+requests.packages.urllib3.disable_warnings()
 
 headers = {"Content-Type": "application/json"}
 
@@ -72,29 +74,26 @@ class InfluxEnv(gym.Env):
         self.past_actions.append(action)
         self.past_actions.append(action)
 
-        newer_df = self.influx_client.query_space("-5m")  # last min is 2 points.
+        newer_df = self.influx_client.query_space("-30s")  # last min is 2 points.
         self.space_df.append(newer_df)
         self.space_df.drop_duplicates(inplace=True)
         self.space_df.dropna(inplace=True)
-
+        terminated = False
         # Need to loop while we have not gotten the next observation of the agents.
         last_row = self.space_df.tail(n=1)
         observation = last_row[self.data_columns]
-        print("Observation: \n", observation)
-
+        self.job_id = last_row['jobId']
         # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
-        if 'jobId' in last_row:
-            terminated, _ = oh.query_if_job_done(last_row['jobId'])
-        else:
-            terminated, _ = oh.query_if_job_done(self.create_opt_request.job_id)
-
+        terminated, meta = oh.query_if_job_done(self.job_id)
+        if terminated:
+            print("JobId: ",self.job_id, " job is done")
         thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
 
         if action[0] < 1 or action[1] < 1 or action[2]< 1:
             reward = -100
         else:
             reward = self.reward_function(rtt, thrpt)
-            oh.send_application_params_tuple(action[0], action[1], action[2], 0)
+            oh.send_application_params_tuple(transfer_node_name=self.create_opt_request.node_id, cc=action[0], p=action[1], pp=action[2], chunkSize=0)
 
         # this reward is of the last influx column which is mapped to that observation so this is the past time steps not the current actions rewards
         self.past_rewards.append(reward)
@@ -119,12 +118,10 @@ class InfluxEnv(gym.Env):
         print("Reset(): obs shape: ", obs.shape)
         # will implement a job difficulty score and then based on that run harder jobs and update based on Agent performance
         if options['launch_job']:
-            first_meta_data = oh.query_job_batch_obj(self.create_opt_request.job_id)
+            first_meta_data = oh.query_job_batch_obj(self.job_id)
             oh.submit_transfer_request(first_meta_data)
             # Here I would want to compute the transfers difficulty which we could measure
             self.past_job_ids.append(self.job_id)
-            self.job_id += 1
-
         return obs, {}
 
     """

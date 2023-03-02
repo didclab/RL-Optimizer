@@ -1,9 +1,10 @@
 from copy import deepcopy
 
-import numpy
-
-from .models import *
 import numpy as np
+import torch
+import torch.nn.functional as F
+from models import *
+
 #
 #found this here: https://github.com/soumik12345/DDPG/tree/master/configs
 #
@@ -69,11 +70,13 @@ class DDPGAgent(object):
         target_q = self.critic_target(next_state, self.actor_target(next_state))
         target_q = reward + (not_done * self.discount * target_q).detach()
         current_q = self.critic(state, action)
+        print("Agent train():", " target_q: ", target_q, " current_q: ", current_q)
         critic_loss = F.mse_loss(current_q, target_q)
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
         actor_loss = -self.critic(state, self.actor(state)).mean()
+        print("Actor loss: ", actor_loss)
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
