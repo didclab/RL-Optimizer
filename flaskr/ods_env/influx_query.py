@@ -28,7 +28,6 @@ class InfluxData:
             df = self.query_api.query_data_frame(q)
             if type(df) == list:
                 df = pd.concat(df, axis=0, ignore_index=True)
-
             if df.empty:
                 time.sleep(1)
                 continue
@@ -37,7 +36,6 @@ class InfluxData:
                 continue
             else:
                 done = True
-
         return df
 
     def prune_df(self, df):

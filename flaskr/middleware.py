@@ -45,18 +45,11 @@ class OptimizerMap(object):
                 return True
             elif create_req.optimizerType == self.ddpg:
                 #if the job is from Elvis or I than it will see the old jobid and launch it.
-                #if the request is from TS than the job should already be running and hence do nothing.
-                # result, meta = oh.query_if_job_running(create_req.job_id)
-                # print(meta)
-                # print(result)
-                # if not result:
-                #     oh.submit_transfer_request(meta)
-                #     time.sleep(15)
                 trainer = Trainer(create_opt_request=create_req)
                 print("Created trainer")
                 self.node_id_to_optimizer[create_req.node_id] = self.ddpg
                 self.optimizer_map[create_req.node_id] = trainer
-                trainer.train()
+                trainer.train(launch_job=create_req.launch_job)
             else:
                 return False
         else:
@@ -64,8 +57,8 @@ class OptimizerMap(object):
                 trainer = self.optimizer_map[create_req.node_id]
                 # update the create optimizer to be the last one from the TS.
                 trainer.set_create_request(create_opt_req=create_req)
-                if not trainer.training_flag:
-                    trainer.train()
+                # if not trainer.training_flag:
+                trainer.train(launch_job=create_req.launch_job)
             print("Optimizer already exists for", create_req.node_id)
             return False
 
@@ -107,8 +100,14 @@ class OptimizerMap(object):
             env.reset()  # this reset should actually construct a new to run.
 
         elif self.node_id_to_optimizer[delete_req.node_id] == self.ddpg:
-            env = self.optimizer_map[delete_req.node_id][1]
-            env.reset(options={'launch_job':True})
+            trainer = self.optimizer_map[delete_req.node_id]
+            if trainer.training_flag:
+                trainer.env.reset(options={'launch_job': True})
+                return
+            else:
+                trainer.close()
+                del self.optimizer_map[delete_req.node_id]
+
 
         return delete_req.node_id
 

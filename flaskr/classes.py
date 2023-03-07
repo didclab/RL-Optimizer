@@ -9,6 +9,7 @@ class CreateOptimizerRequest(object):
         self.optimizerType = optimizer_type
         self.file_count = file_count
         self.job_id = job_id
+        self.launch_job = False
 
     def __str__(self):
         rep = "CreateOptimizerRequest object\n"
@@ -20,6 +21,9 @@ class CreateOptimizerRequest(object):
         rep += "optimizerType: " + str(self.optimizerType) + "\n"
         rep += "fileCount: " + str(self.file_count) + "\n"
         return rep
+
+    def set_launch_job(self, launch_job=False):
+        self.launch_job = launch_job
 
 
 class InputOptimizerRequest(object):
@@ -52,4 +56,3 @@ class DeleteOptimizerRequest(object):
         rep = "DeleteOptimizerRequest object\n"
         rep += "node_id: " + self.node_id + "\n"
         return rep
-

@@ -107,7 +107,6 @@ def send_application_params_tuple(cc, p, pp, transfer_node_name, chunkSize=0):
     url = "http://{}:8061/apply/application/params".format(sched_ip)
     params = TransferApplicationParams(transferNodeName=transfer_node_name, cc=str(cc), p=str(p), pp=str(pp), chunkSize=chunkSize)
     json_str = json.dumps(params.__dict__)
-    print(json_str)
     return requests.put(url=url, data=json_str, headers=headers)
 
 

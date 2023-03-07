@@ -1,7 +1,9 @@
+import time
+
 import gym
 from gym import spaces
 import numpy as np
-import pandas
+import pandas as pd
 from flaskr.classes import CreateOptimizerRequest
 import flaskr.ods_env.ods_helper as oh
 from flaskr.ods_env import env_utils
@@ -12,19 +14,18 @@ requests.packages.urllib3.disable_warnings()
 headers = {"Content-Type": "application/json"}
 
 # display all the  rows
-pandas.set_option('display.max_rows', None)
+pd.set_option('display.max_rows', None)
 
 # display all the  columns
-pandas.set_option('display.max_columns', None)
+pd.set_option('display.max_columns', None)
 
 # set width  - 100
-pandas.set_option('display.width', 100)
-
+pd.set_option('display.width', 100)
 # set column header -  left
-pandas.set_option('display.colheader_justify', 'left')
+pd.set_option('display.colheader_justify', 'left')
 
 # set precision - 5
-pandas.set_option('display.precision', 5)
+pd.set_option('display.precision', 5)
 
 class InfluxEnv(gym.Env):
 
@@ -37,14 +38,12 @@ class InfluxEnv(gym.Env):
         self.influx_client = InfluxData(bucket_name=bucket_name, transfer_node_name=create_opt_req.node_id,
                                         file_name=None, time_window=time_window)
         # gets last 7 days worth of data. Gonna be a lil slow to create
-        print("querying the space df")
         self.space_df = self.influx_client.query_space(time_window)
         self.job_id = create_opt_req.job_id
         if len(observation_columns) > 0:
             self.data_columns = observation_columns
         else:
             self.data_columns = self.space_df.columns.values
-        print("obs space columns are:", self.data_columns)
         self.reward_function = reward_function  # this function is then used to evaluate the obs space of the last entry
         if action_space_discrete:
             self.action_space = spaces.Discrete(3)  # drop stay increase
@@ -72,14 +71,15 @@ class InfluxEnv(gym.Env):
             return {}, {}, {}, {}
         print("Step: action:", action)
         self.past_actions.append(action)
-        self.past_actions.append(action)
 
-        newer_df = self.influx_client.query_space("-30s")  # last min is 2 points.
-        self.space_df.append(newer_df)
+        oh.send_application_params_tuple(transfer_node_name=self.create_opt_request.node_id, cc=action[0], p=action[1], pp=action[2], chunkSize=0)
+
+        self.space_df = self.influx_client.query_space("-2m")
         self.space_df.drop_duplicates(inplace=True)
         self.space_df.dropna(inplace=True)
         terminated = False
         # Need to loop while we have not gotten the next observation of the agents.
+        print(self.space_df[['read_throughput', "write_throughput"]])
         last_row = self.space_df.tail(n=1)
         observation = last_row[self.data_columns]
         self.job_id = last_row['jobId']
@@ -87,25 +87,31 @@ class InfluxEnv(gym.Env):
         terminated, meta = oh.query_if_job_done(self.job_id)
         if terminated:
             print("JobId: ",self.job_id, " job is done")
-        thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
+        thrpt, _ = env_utils.smallest_throughput_rtt(last_row=last_row)
+        reward = thrpt
+        print("Step reward: ", reward)
 
-        if action[0] < 1 or action[1] < 1 or action[2]< 1:
-            reward = -100
-        else:
-            reward = self.reward_function(rtt, thrpt)
-            oh.send_application_params_tuple(transfer_node_name=self.create_opt_request.node_id, cc=action[0], p=action[1], pp=action[2], chunkSize=0)
-
+        # reward = self.reward_function(rtt, thrpt)
         # this reward is of the last influx column which is mapped to that observation so this is the past time steps not the current actions rewards
         self.past_rewards.append(reward)
-        return observation, reward, terminated, None
+        return observation, reward, terminated, None, None
 
     """
     So right now this does not launch another job. It simply resets the observation space to the last jobs influx entries
+    Should only be called if there was a termination.
     """
 
     def reset(self, seed=None, options={'launch_job': False}):
-        print("Past Actions: ", self.past_actions)
-        print("Past Rewards: ", self.past_rewards)
+        if options['launch_job']:
+            first_meta_data = oh.query_job_batch_obj(self.job_id)
+            print("Launching job with id=", first_meta_data['jobId'])
+            oh.submit_transfer_request(first_meta_data)
+            # Here I would want to compute the transfers difficulty which we could measure
+            time.sleep(20)
+
+        if len(self.past_actions) >0 and len(self.past_rewards) > 0:
+            print("Average past rewards:", sum(self.past_rewards)/len(self.past_actions))
+
         self.past_actions.clear()
         self.past_rewards.clear()
         # env launches the last job again.
@@ -113,15 +119,8 @@ class InfluxEnv(gym.Env):
         self.space_df.append(newer_df)
         self.space_df.drop_duplicates(inplace=True)
         self.space_df.dropna(inplace=True)
-        print("Reset(): space_df shape:", self.space_df.shape)
         obs = self.space_df[self.data_columns].tail(n=1)
-        print("Reset(): obs shape: ", obs.shape)
         # will implement a job difficulty score and then based on that run harder jobs and update based on Agent performance
-        if options['launch_job']:
-            first_meta_data = oh.query_job_batch_obj(self.job_id)
-            oh.submit_transfer_request(first_meta_data)
-            # Here I would want to compute the transfers difficulty which we could measure
-            self.past_job_ids.append(self.job_id)
         return obs, {}
 
     """
@@ -135,10 +134,11 @@ class InfluxEnv(gym.Env):
         print("Viewing the graphs on influxdb is probably best but here is stuff from the last epoch")
         print("Rewards: thrpt*rtt", self.past_rewards)
         print("Data")
-        plot = self.space_df.plot(columns=self.data_columns)
-        fig = plot.get_figure()
-        plt_file_name = '../plots/' + self.create_opt_request.node_id + "_" + str(self.job_id) + str('_.png')
-        fig.savefig(plt_file_name)
+        if mode == "graph":
+            plot = self.space_df.plot(columns=self.data_columns)
+            fig = plot.get_figure()
+            plt_file_name = '../plots/' + self.create_opt_request.node_id + "_" + str(self.job_id) + str('_.png')
+            fig.savefig(plt_file_name)
 
     """
     Closes in the influx client behind the scenes

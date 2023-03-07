@@ -3,7 +3,7 @@ from copy import deepcopy
 import numpy as np
 import torch
 import torch.nn.functional as F
-from models import *
+from .models import Actor, Critic
 
 #
 #found this here: https://github.com/soumik12345/DDPG/tree/master/configs

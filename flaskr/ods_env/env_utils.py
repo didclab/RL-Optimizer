@@ -1,7 +1,7 @@
 
-
 def smallest_throughput_rtt(last_row):
-    if last_row['write_throughput'].iloc[-1] < last_row['read_throughput'].iloc[-1]:
+    #if rtt is 0 then it is a vfs node and using disk.
+    if last_row['write_throughput'].iloc[-1] > last_row['read_throughput'].iloc[-1]:
         thrpt = last_row['write_throughput'].iloc[-1]
         rtt = last_row['destination_rtt'].iloc[-1]
     else:

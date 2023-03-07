@@ -80,7 +80,7 @@ def at_exit():
     optim_map.clean_all()
 
 
-atexit.register(at_exit)
+# atexit.register(at_exit)
 
 app = Flask(__name__)
 start = time.time()
@@ -103,7 +103,8 @@ def create_optimizer():
                                             json_dict['maxParallelism'], json_dict['maxPipelining'],
                                             json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'], json_dict['jobId'])
         print(create_opt.__str__())
-
+        if 'launch_job' in json_dict:
+            create_opt.set_launch_job(json_dict['launch_job'])
         if create_opt.optimizerType == optim_map.vda2c:
             override = None
             if fast_slow_switch > 0:
@@ -127,7 +128,6 @@ def create_optimizer():
             optim_map.create_optimizer(create_opt)
 
         return ('', 204)
-
 
 @app.route('/optimizer/parameters', methods=['GET'])
 def input_to_optimizer():
