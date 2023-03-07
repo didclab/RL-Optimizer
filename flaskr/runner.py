@@ -23,7 +23,7 @@ class Trainer(object):
                          'destination_latency', 'destination_rtt',
                          'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt',
                          'write_throughput']
-        self.device = torch.device('mps' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.create_opt_request = create_opt_request  # this gets updated every call
         self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-1d",
                                                 observation_columns=self.obs_cols)
@@ -79,17 +79,13 @@ class Trainer(object):
             terminated = False
             while not terminated:
                 action = (self.agent.select_action(np.array(obs)))
-                if action[0] < 1:
-                    action[0] = 1
-                if action[1] < 1:
-                    action[1] = 1
-                if action[2] < 1:
-                    action[2] = 1
                 new_obs, reward, terminated, truncated, info = self.env.step(action)
                 self.replay_buffer.add(obs, action, new_obs, reward, terminated)
                 obs = new_obs
                 if self.replay_buffer.size > batch_size:
                     self.agent.train(replay_buffer=self.replay_buffer, batch_size=batch_size)
+                else:
+                    print("Replay Buffer size is:", self.replay_buffer.size, " need it to be ", batch_size)
 
                 episode_reward += reward
                 if terminated:

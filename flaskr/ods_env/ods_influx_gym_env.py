@@ -70,11 +70,8 @@ class InfluxEnv(gym.Env):
         if not action.all():
             return {}, {}, {}, {}
         print("Step: action:", action)
-        self.past_actions.append(action)
 
-        oh.send_application_params_tuple(transfer_node_name=self.create_opt_request.node_id, cc=action[0], p=action[1], pp=action[2], chunkSize=0)
-
-        self.space_df = self.influx_client.query_space("-2m")
+        self.space_df = self.influx_client.query_space("-10s")
         self.space_df.drop_duplicates(inplace=True)
         self.space_df.dropna(inplace=True)
         terminated = False
@@ -87,13 +84,19 @@ class InfluxEnv(gym.Env):
         terminated, meta = oh.query_if_job_done(self.job_id)
         if terminated:
             print("JobId: ",self.job_id, " job is done")
-        thrpt, _ = env_utils.smallest_throughput_rtt(last_row=last_row)
-        reward = thrpt
-        print("Step reward: ", reward)
 
+        if action[0] < 1 or action[1] < 1 or action[2] < 1 or action[0] > self.create_opt_request.max_concurrency or action[1] > self.create_opt_request.max_parallelism or action[2] > self.create_opt_request.max_pipesize:
+            reward = -10000000
+        else:
+            oh.send_application_params_tuple(transfer_node_name=self.create_opt_request.node_id, cc=action[0], p=action[1], pp=action[2], chunkSize=0)
+            self.past_actions.append(action)
+            thrpt, _ = env_utils.smallest_throughput_rtt(last_row=last_row)
+            reward = thrpt
+
+        print("Step reward: ", reward)
+        self.past_rewards.append(reward)
         # reward = self.reward_function(rtt, thrpt)
         # this reward is of the last influx column which is mapped to that observation so this is the past time steps not the current actions rewards
-        self.past_rewards.append(reward)
         return observation, reward, terminated, None, None
 
     """
@@ -104,7 +107,7 @@ class InfluxEnv(gym.Env):
     def reset(self, seed=None, options={'launch_job': False}):
         if options['launch_job']:
             first_meta_data = oh.query_job_batch_obj(self.job_id)
-            print("Launching job with id=", first_meta_data['jobId'])
+            # print("Launching job with id=", first_meta_data['jobId'])
             oh.submit_transfer_request(first_meta_data)
             # Here I would want to compute the transfers difficulty which we could measure
             time.sleep(20)
