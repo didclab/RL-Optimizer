@@ -16,7 +16,7 @@ class InfluxData:
 
         self.input_file = file_name
 
-    def query_space(self, time_window='-2m', keys_to_expect=['bytesDownloaded', 'bytesUploaded', 'chunkSize', 'concurrency', 'destination_latency', 'destination_rtt', 'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt', 'write_throughput', 'jobId']):
+    def query_space(self, time_window='-2m', keys_to_expect=['bytesDownloaded', 'bytesUploaded', 'chunkSize', 'concurrency', 'destination_latency', 'destination_rtt', 'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt', 'write_throughput', 'jobId'], retry_count=10):
         q = '''from(bucket: "{}")
   |> range(start: {})
   |> filter(fn: (r) => r["_measurement"] == "transfer_data")

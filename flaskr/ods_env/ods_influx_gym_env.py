@@ -48,7 +48,8 @@ class InfluxEnv(gym.Env):
         if action_space_discrete:
             self.action_space = spaces.Discrete(3)  # drop stay increase
         else:
-            self.action_space = spaces.Box(low=1, high=32, shape=(3,))
+            self.action_space = spaces.Box(low=1, high=32, shape=(2,)) #for now cc, p only
+        self.action_space_max = 32 * 2
             # So this is probably not defined totally properly as I assume dimensions are 0-infinity
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),))
         self.past_rewards = []
@@ -67,8 +68,6 @@ class InfluxEnv(gym.Env):
     """
 
     def step(self, action):
-        if not action.all():
-            return {}, {}, {}, {}
         print("Step: action:", action)
 
         self.space_df = self.influx_client.query_space("-10s")
@@ -84,15 +83,22 @@ class InfluxEnv(gym.Env):
         terminated, meta = oh.query_if_job_done(self.job_id)
         if terminated:
             print("JobId: ",self.job_id, " job is done")
-
-        if action[0] < 1 or action[1] < 1 or action[2] < 1 or action[0] > self.create_opt_request.max_concurrency or action[1] > self.create_opt_request.max_parallelism or action[2] > self.create_opt_request.max_pipesize:
+        if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[1] > self.create_opt_request.max_parallelism :
             reward = -10000000
         else:
-            oh.send_application_params_tuple(transfer_node_name=self.create_opt_request.node_id, cc=action[0], p=action[1], pp=action[2], chunkSize=0)
-            self.past_actions.append(action)
-            thrpt, _ = env_utils.smallest_throughput_rtt(last_row=last_row)
-            reward = thrpt
+            if int(last_row['concurrency']) != action[0] or int(last_row['parallelism']) != action[1]:
+                oh.send_application_params_tuple(transfer_node_name=self.create_opt_request.node_id, cc=action[0], p=action[1], pp=1, chunkSize=0)
 
+            thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
+            self.past_actions.append(action)
+            totalBytes = int(meta['jobParameters']['jobSize'])
+            byte_ratio = (thrpt * rtt)/totalBytes
+            last_action = last_row['concurrency'].iloc[-1] + last_row['parallelism'].iloc[-1]
+            action_ratio = last_action / self.action_space_max
+            print("Byte Ratio=", byte_ratio, " thrpt=", thrpt, " * rtt=", rtt, " /totalBytes", totalBytes)
+            print("Action Ratio=", action_ratio, "last_action=", last_action, "/ action space max=", self.action_space_max)
+            reward = byte_ratio/action_ratio
+            print("Reward=", reward)
         print("Step reward: ", reward)
         self.past_rewards.append(reward)
         # reward = self.reward_function(rtt, thrpt)
@@ -108,11 +114,11 @@ class InfluxEnv(gym.Env):
         if options['launch_job']:
             first_meta_data = oh.query_job_batch_obj(self.job_id)
             # print("Launching job with id=", first_meta_data['jobId'])
-            oh.submit_transfer_request(first_meta_data)
+            oh.submit_transfer_request(first_meta_data, optimizer="DDPG")
             # Here I would want to compute the transfers difficulty which we could measure
-            time.sleep(20)
+            time.sleep(10)
 
-        if len(self.past_actions) >0 and len(self.past_rewards) > 0:
+        if len(self.past_actions) > 0 and len(self.past_rewards) > 0:
             print("Average past rewards:", sum(self.past_rewards)/len(self.past_actions))
 
         self.past_actions.clear()

@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 import torch
 import flaskr.ods_env.ods_helper as oh
@@ -49,7 +50,9 @@ class OptimizerMap(object):
                 print("Created trainer")
                 self.node_id_to_optimizer[create_req.node_id] = self.ddpg
                 self.optimizer_map[create_req.node_id] = trainer
-                trainer.train(launch_job=create_req.launch_job)
+                thread = threading.Thread(target=trainer.train)
+                thread.start()
+                return True
             else:
                 return False
         else:

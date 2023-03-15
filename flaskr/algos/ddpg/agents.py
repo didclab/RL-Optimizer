@@ -65,7 +65,7 @@ class DDPGAgent(object):
         )
         self.actor_target = deepcopy(self.actor)
 
-    def train(self, replay_buffer, batch_size=100):
+    def train(self, replay_buffer, batch_size=64):
         state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
         target_q = self.critic_target(next_state, self.actor_target(next_state))
         target_q = reward + (not_done * self.discount * target_q).detach()

@@ -23,7 +23,7 @@ class Trainer(object):
                          'destination_latency', 'destination_rtt',
                          'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt',
                          'write_throughput']
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('mps' if torch.cuda.is_available() else 'cpu')
         self.create_opt_request = create_opt_request  # this gets updated every call
         self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-1d",
                                                 observation_columns=self.obs_cols)
@@ -42,14 +42,14 @@ class Trainer(object):
     #Lets say we select the past 10 jobs worth of data what happens?
     def warm_buffer(self):
         print("warming buffer")
-        df = self.env.influx_client.query_space(time_window="-7d")
+        df = self.env.influx_client.query_space(time_window="-1d")
         df = df[self.obs_cols]
         df.drop_duplicates(inplace=True)
         df.dropna(inplace=True)
         for i in range(df.shape[0]-1):
             current_row = df.iloc[i]
             obs = current_row[self.obs_cols]
-            action = obs[['concurrency','parallelism', 'pipelining']]
+            action = obs[['concurrency','parallelism']]
             next_obs = df.iloc[i+1]
             if next_obs['write_throughput'] < next_obs['read_throughput']:
                 thrpt = next_obs['write_throughput']
@@ -64,14 +64,15 @@ class Trainer(object):
 
 
 
-    def train(self, max_episodes=100, batch_size=64, launch_job=False):
+    def train(self, max_episodes=5, batch_size=64, launch_job=False):
         self.training_flag = True
         episode_rewards = []
         lj = launch_job
         options = {'launch_job': lj}
-        obs = self.env.reset(options=options)  # gurantees job is running
+        print("Before the first env reset()")
+        obs = self.env.reset(options=options)[0]  # gurantees job is running
         print("State in train(): ", obs, "\t", "type: ", type(obs))
-        obs = np.asarray(a=obs[0], dtype=numpy.float64)
+        obs = np.asarray(a=obs, dtype=numpy.float64)
         lj = False  # previous line launched a job
         # episode = 1 transfer job
         for episode in range(max_episodes):
@@ -79,18 +80,17 @@ class Trainer(object):
             terminated = False
             while not terminated:
                 action = (self.agent.select_action(np.array(obs)))
+                action = np.clip(action, 1, 32)
                 new_obs, reward, terminated, truncated, info = self.env.step(action)
                 self.replay_buffer.add(obs, action, new_obs, reward, terminated)
                 obs = new_obs
                 if self.replay_buffer.size > batch_size:
                     self.agent.train(replay_buffer=self.replay_buffer, batch_size=batch_size)
-                else:
-                    print("Replay Buffer size is:", self.replay_buffer.size, " need it to be ", batch_size)
 
                 episode_reward += reward
                 if terminated:
-                    obs = self.env.reset(options={'launch_job': True})
-                    obs = np.asarray(a=obs[0], dtype=numpy.float64)
+                    obs = self.env.reset(options={'launch_job': True})[0]
+                    obs = np.asarray(a=obs, dtype=numpy.float64)
                     print("Episode reward: {}", episode_reward)
                     episode_rewards.append(episode_reward)
 
