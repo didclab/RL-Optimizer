@@ -64,7 +64,7 @@ class Trainer(object):
 
 
 
-    def train(self, max_episodes=5, batch_size=64, launch_job=False):
+    def train(self, max_episodes=1, batch_size=100, launch_job=False):
         self.training_flag = True
         episode_rewards = []
         lj = launch_job
@@ -75,17 +75,21 @@ class Trainer(object):
         obs = np.asarray(a=obs, dtype=numpy.float64)
         lj = False  # previous line launched a job
         # episode = 1 transfer job
+        ts = 0
         for episode in range(max_episodes):
             episode_reward = 0
             terminated = False
             while not terminated:
                 action = (self.agent.select_action(np.array(obs)))
+                action = np.rint(action)
                 action = np.clip(action, 1, 32)
                 new_obs, reward, terminated, truncated, info = self.env.step(action)
+                ts+=1
                 self.replay_buffer.add(obs, action, new_obs, reward, terminated)
                 obs = new_obs
                 if self.replay_buffer.size > batch_size:
-                    self.agent.train(replay_buffer=self.replay_buffer, batch_size=batch_size)
+                    if ts % 10 == 0:
+                        self.agent.train(replay_buffer=self.replay_buffer, batch_size=batch_size)
 
                 episode_reward += reward
                 if terminated:
