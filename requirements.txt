@@ -9,5 +9,7 @@ apscheduler
 tensorboard
 h5py
 matplotlib
-stable_baselines3
+stable-baselines3
 pandas
+gymnasium
+pettingzoo
