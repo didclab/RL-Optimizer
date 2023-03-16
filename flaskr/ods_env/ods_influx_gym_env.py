@@ -92,7 +92,7 @@ class InfluxEnv(gym.Env):
             thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
             self.past_actions.append(action)
             totalBytes = int(meta['jobParameters']['jobSize'])
-            byte_ratio = (thrpt * rtt)/totalBytes
+            byte_ratio = ((thrpt/8) * rtt)/totalBytes
             last_action = last_row['concurrency'].iloc[-1] + last_row['parallelism'].iloc[-1]
             action_ratio = last_action / self.action_space_max
             print("Byte Ratio=", byte_ratio, " thrpt=", thrpt, " * rtt=", rtt, " /totalBytes", totalBytes)
