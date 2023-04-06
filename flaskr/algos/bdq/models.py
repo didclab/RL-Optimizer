@@ -3,13 +3,20 @@ import torch.nn.functional as F
 
 
 class PreNet(nn.Module):
-    def __init__(self, state_dimension):
+    def __init__(self, state_dimension, eval=False):
         super(PreNet, self).__init__()
+        self.b0 = nn.BatchNorm1d(state_dimension)
         self.l1 = nn.Linear(state_dimension, 512)
+        self.b1 = nn.BatchNorm1d(312)
         self.l2 = nn.Linear(512, 256)
 
+        if eval:
+            self.b0.eval()
+            self.b1.eval()
+
     def forward(self, state):
-        pre = F.relu(self.l1(state))
+        pre = self.b0(state)
+        pre = self.b1(F.relu(self.l1(pre)))
         return self.l2(pre)
 
 
