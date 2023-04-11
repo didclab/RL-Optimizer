@@ -39,18 +39,18 @@ class Trainer(object):
             pass
         self.training_flag = False
 
-    #Lets say we select the past 10 jobs worth of data what happens?
+    # Lets say we select the past 10 jobs worth of data what happens?
     def warm_buffer(self):
         print("warming buffer")
         df = self.env.influx_client.query_space(time_window="-1d")
         df = df[self.obs_cols]
         df.drop_duplicates(inplace=True)
         df.dropna(inplace=True)
-        for i in range(df.shape[0]-1):
+        for i in range(df.shape[0] - 1):
             current_row = df.iloc[i]
             obs = current_row[self.obs_cols]
-            action = obs[['concurrency','parallelism']]
-            next_obs = df.iloc[i+1]
+            action = obs[['concurrency', 'parallelism']]
+            next_obs = df.iloc[i + 1]
             if next_obs['write_throughput'] < next_obs['read_throughput']:
                 thrpt = next_obs['write_throughput']
                 rtt = next_obs['destination_rtt']
@@ -61,8 +61,6 @@ class Trainer(object):
             terminated = False
             self.replay_buffer.add(obs, action, next_obs, reward, terminated)
         print("Finished Warming Buffer: size=", self.replay_buffer.size)
-
-
 
     def train(self, max_episodes=1, batch_size=100, launch_job=False):
         self.training_flag = True
@@ -84,7 +82,7 @@ class Trainer(object):
                 action = np.rint(action)
                 action = np.clip(action, 1, 32)
                 new_obs, reward, terminated, truncated, info = self.env.step(action)
-                ts+=1
+                ts += 1
                 self.replay_buffer.add(obs, action, new_obs, reward, terminated)
                 obs = new_obs
                 if self.replay_buffer.size > batch_size:
@@ -97,7 +95,6 @@ class Trainer(object):
                     obs = np.asarray(a=obs, dtype=numpy.float64)
                     print("Episode reward: {}", episode_reward)
                     episode_rewards.append(episode_reward)
-
 
         self.training_flag = False
         self.agent.save_checkpoint("influx_gym_env")

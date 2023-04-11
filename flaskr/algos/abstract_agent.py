@@ -28,5 +28,5 @@ class AbstractAgent(ABC):
         pass
 
     @abstractmethod
-    def train(self):
+    def train(self, replay_buffer, batch_size=64):
         pass
