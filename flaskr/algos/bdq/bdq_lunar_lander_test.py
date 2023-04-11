@@ -27,6 +27,19 @@ if __name__ == "__main__":
     episodes = 2000
     state = env.reset()[0]
     # env.render()
+    
+    for _ in range(BATCH_SIZE):
+        state = env.reset()[0]
+        terminated = False
+        truncated = False
+        step_ct = 0
+
+        while not (terminated or truncated):
+            action = np.random.randint(0, 3)
+            next_state, reward, terminated, truncated, info = env.step(action)
+            replay_buffer.add(state, action, next_state, reward, terminated or truncated)
+            state = next_state
+
     for episode in range(episodes):
         episode_reward = 0
         state = env.reset()[0]
@@ -41,7 +54,7 @@ if __name__ == "__main__":
             eps_actions.append(action)
 
             next_state, reward, terminated, truncated, info = env.step(action)
-            replay_buffer.add(state, action, next_state, reward, terminated)
+            replay_buffer.add(state, action, next_state, reward, terminated or truncated)
             state = next_state
             if replay_buffer.size > BATCH_SIZE:
                 agent.train(replay_buffer, BATCH_SIZE)
