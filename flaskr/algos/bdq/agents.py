@@ -89,7 +89,7 @@ class BDQAgent(AbstractAgent, object):
 
         return actions.flatten().cpu().numpy()
 
-    def compute_target_loss(self, state, rewards):
+    def compute_target_loss(self, state, rewards, not_dones):
         # actual
         # print(state.shape)
 
@@ -136,14 +136,19 @@ class BDQAgent(AbstractAgent, object):
 
         for j in range(num_samples):
             sum_q = 0
-            for i in range(self.num_actions):
-                action = test_index[i, j]
-                q_values = q_values_mat[i, j, action]
+            not_done = (not_dones[0] == 1.).item()
 
-                sum_q += q_values
+            if not_done:
+                for i in range(self.num_actions):
+                    action = test_index[i, j]
+                    q_values = q_values_mat[i, j, action]
 
-            sum_q = sum_q / self.num_actions
-            trajectory.append(self.discount * sum_q)
+                    sum_q += q_values
+
+                sum_q = sum_q / self.num_actions
+                trajectory.append(self.discount * sum_q)
+            else:
+                trajectory.append(0.)
 
         trajectory = torch.stack(trajectory).reshape(1, num_samples)
         rewards = rewards.transpose(0, 1)
@@ -157,7 +162,7 @@ class BDQAgent(AbstractAgent, object):
         state, action, next_state, reward, not_done = replay_buffer.sample(
             batch_size)
 
-        loss, q_values_actual, target = self.compute_target_loss(state, reward)
+        loss, q_values_actual, target = self.compute_target_loss(state, reward, not_done)
 
         # self.optimizer.zero_grad()
         self.optimizer_pre.zero_grad()

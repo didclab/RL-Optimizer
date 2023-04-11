@@ -21,8 +21,7 @@ if __name__ == "__main__":
     # print(type(env.action_space))
     action_dim = env.action_space.n
     state_dim = env.observation_space.shape[0]
-    agent = BDQAgent(state_dim=state_dim, num_actions=1, action_dims=[
-                     action_dim], device=device)
+    agent = BDQAgent(state_dim=state_dim, action_dims=[action_dim], device=device)
     replay_buffer = ReplayBuffer(
         state_dimension=state_dim, action_dimension=action_dim)
     episodes = 2000
