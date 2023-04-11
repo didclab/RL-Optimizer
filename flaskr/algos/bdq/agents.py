@@ -148,7 +148,7 @@ class BDQAgent(AbstractAgent, object):
                 sum_q = sum_q / self.num_actions
                 trajectory.append(self.discount * sum_q)
             else:
-                trajectory.append(0.)
+                trajectory.append(torch.tensor([0.], device=self.device))
 
         trajectory = torch.stack(trajectory).reshape(1, num_samples)
         rewards = rewards.transpose(0, 1)
@@ -159,8 +159,7 @@ class BDQAgent(AbstractAgent, object):
         return loss, q_values_actual, target
 
     def train(self, replay_buffer, batch_size=64):
-        state, action, next_state, reward, not_done = replay_buffer.sample(
-            batch_size)
+        state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
 
         loss, q_values_actual, target = self.compute_target_loss(state, reward, not_done)
 
