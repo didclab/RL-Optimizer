@@ -8,8 +8,10 @@ import numpy as np
 
 BATCH_SIZE = 64
 MAX_STEPS = 999
-# ENV_NAME="LunarLander-v2"
-ENV_NAME = "MountainCar-v0"
+ENV_NAME="LunarLander-v2"
+# ENV_NAME = "MountainCar-v0"
+# ENV_NAME = "CartPole-v1"
+
 
 if __name__ == "__main__":
     episode_rewards = []
@@ -23,7 +25,7 @@ if __name__ == "__main__":
     state_dim = env.observation_space.shape[0]
     agent = BDQAgent(state_dim=state_dim, action_dims=[action_dim], device=device)
     replay_buffer = ReplayBuffer(
-        state_dimension=state_dim, action_dimension=action_dim)
+        state_dimension=state_dim, action_dimension=1)
     episodes = 2000
     state = env.reset()[0]
     # env.render()
@@ -35,7 +37,7 @@ if __name__ == "__main__":
         step_ct = 0
 
         while not (terminated or truncated):
-            action = np.random.randint(0, 3)
+            action = np.random.randint(0, 4)
             next_state, reward, terminated, truncated, info = env.step(action)
             replay_buffer.add(state, action, next_state, reward, terminated or truncated)
             state = next_state
@@ -47,11 +49,11 @@ if __name__ == "__main__":
         truncated = False
         step_ct = 0
 
-        eps_actions = []
+        # eps_actions = []
         while not (terminated or truncated):
             action = agent.select_action(state)
             action = action[0]
-            eps_actions.append(action)
+            # eps_actions.append(action)
 
             next_state, reward, terminated, truncated, info = env.step(action)
             replay_buffer.add(state, action, next_state, reward, terminated or truncated)
@@ -66,15 +68,15 @@ if __name__ == "__main__":
             if terminated or truncated:
                 episode_rewards.append(episode_reward)
                 print("Episode: ", episode, " reward=", episode_reward)
-            if np.mean(episode_rewards[-10:]) > 200:
+            if np.mean(episode_rewards[-10:]) > 195:
                 break
 
         agent.update_epsilon()
-        print(eps_actions)
+        # print(eps_actions)
 
     print("Episode avg", np.mean(episode_rewards[-10:]))
     agent.save_checkpoint(ENV_NAME)
-    env = gymnasium.make(ENV_NAME, continuous=True, gravity=-10.0, enable_wind=False, wind_power=15.0,
-                         render_mode="human")
+    # env = gymnasium.make(ENV_NAME, continuous=True, gravity=-10.0, enable_wind=False, wind_power=15.0,
+    #                      render_mode="human")
     print("Total Mean reward from evaluate: ", evaluate_policy(
         policy=agent, env=env, seed=42, eval_episodes=20))
