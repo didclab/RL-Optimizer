@@ -16,7 +16,7 @@ class BDQAgent(AbstractAgent, object):
     """
 
     def __init__(self, state_dim, action_dims: list,
-                 device, num_actions=1, discount=0.99, tau=0.005, evaluate=False) -> None:
+                 device, num_actions=1, discount=0.99, tau=0.005, decay=0.9966, evaluate=False) -> None:
         super().__init__()
         self.device = device
         self.discount = discount
@@ -63,7 +63,7 @@ class BDQAgent(AbstractAgent, object):
 
         self.epsilon = 1.
         # rated for 2000 episodes
-        self.decay = 0.9966
+        self.decay = decay
 
     def update_epsilon(self):
         self.epsilon = max(0.005, self.epsilon * self.decay)
@@ -185,10 +185,13 @@ class BDQAgent(AbstractAgent, object):
 
         # trajectory = torch.stack(trajectory).reshape(1, num_samples)
         rewards = rewards.transpose(0, 1)
+        
         target = rewards + sum_q
         target = target.detach()
 
-        loss = F.mse_loss(q_values_actual, target)
+        q_values_avg = q_values_actual.sum(0).unsqueeze(0) / self.num_actions
+        
+        loss = F.mse_loss(q_values_avg, target)
         return loss, q_values_actual, target
 
     def train(self, replay_buffer, batch_size=64):

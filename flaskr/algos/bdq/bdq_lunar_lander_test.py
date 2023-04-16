@@ -78,5 +78,5 @@ if __name__ == "__main__":
     agent.save_checkpoint(ENV_NAME)
     # env = gymnasium.make(ENV_NAME, continuous=True, gravity=-10.0, enable_wind=False, wind_power=15.0,
     #                      render_mode="human")
-    print("Total Mean reward from evaluate: ", evaluate_policy(
-        policy=agent, env=env, seed=42, eval_episodes=20))
+    # print("Total Mean reward from evaluate: ", evaluate_policy(
+    #     policy=agent, env=env, seed=42, eval_episodes=20))
