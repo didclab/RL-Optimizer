@@ -4,7 +4,10 @@ import pandas
 import torch
 import numpy as np
 import os
+
 from .ods_env import ods_influx_gym_env
+from .ods_env.ods_rewards import ArslanReward
+
 from flaskr import classes
 
 from .algos.ddpg import agents as ddpg_agents
@@ -65,16 +68,24 @@ def fetch_df(env: ods_influx_gym_env.InfluxEnv, obs_cols: list) -> pandas.DataFr
     df.drop_duplicates(inplace=True)
     df.dropna(inplace=True)
 
+    # create diff-drop-in column inplace
+    df.assign(diff_dropin=df['dropin'].diff(periods=1).fillna(0))
+
     return df
 
 
 class BDQTrainer(AbstractTrainer):
     def __init__(self, create_opt_request: classes.CreateOptimizerRequest, max_episodes=100, batch_size=64):
-        self.obs_cols = ['active_core_count', 'allocatedMemory',
+        self.total_obs_cols = ['active_core_count', 'allocatedMemory',
                          'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
                          'dropin', 'dropout', 'packet_loss_rate', 'chunkSize', 'concurrency',
                          'destination_latency', 'destination_rtt', 'jobSize', 'parallelism',
                          'pipelining', 'read_throughput', 'source_latency', 'source_rtt', 'write_throughput']
+
+        self.obs_cols = ['allocatedMemory', 'cpu_frequency_current', 'dropin', 'dropout', 'packet_loss_rate',
+                         'chunkSize', 'concurrency', 'destination_latency', 'destination_rtt', 'jobSize',
+                         'parallelism', 'pipelining', 'read_throughput', 'source_latency',
+                         'source_rtt', 'write_throughput']
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-1d",
@@ -98,11 +109,21 @@ class BDQTrainer(AbstractTrainer):
         )
 
         self.replay_buffer = memory.ReplayBuffer(state_dimension=state_dim, action_dimension=action_dim)
+        self.stats = None
+
         self.warm_buffer()
         self.save_file_name = f"BDQ_{'influx_gym_env'}"
 
     def warm_buffer(self):
         df = fetch_df(self.env, self.obs_cols)
+
+        # initialize stats here
+        self.stats = df.describe()
+        means = self.stats.loc['mean']
+        stds = self.stats.loc['std']
+
+        # create utility column inplace
+        df.assign(utility=lambda x: ArslanReward.construct(x, penalty='diff_dropin'))
 
         for i in range(df.shape[0] - 1):
             current_row = df.iloc[i]
@@ -112,15 +133,12 @@ class BDQTrainer(AbstractTrainer):
             action = [self.params_to_actions[p] for p in params]
 
             next_obs = df.iloc[i + 1]
-            if next_obs['write_throughput'] < next_obs['read_throughput']:
-                thrpt = next_obs['write_throughput']
-                rtt = next_obs['destination_rtt']
-            else:
-                thrpt = next_obs['read_throughput']
-                rtt = next_obs['source_rtt']
-            reward = rtt * thrpt
+            reward = ArslanReward.compare(current_row['utility'], next_obs['utility'])
             terminated = False
-            self.replay_buffer.add(obs, action, next_obs, reward, terminated)
+
+            norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
+            norm_next_obs = (next_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
+            self.replay_buffer.add(norm_obs, action, norm_next_obs, reward, terminated)
 
         print("Finished Warming Buffer: size=", self.replay_buffer.size)
 
