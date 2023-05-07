@@ -7,7 +7,7 @@ from algos.global_utils import evaluate_policy
 import numpy as np
 
 BATCH_SIZE = 64
-MAX_STEPS = 100
+MAX_STEPS = 25
 NUM_AGENTS=2
 HARD_NAME='agent_0'
 NUM_EPISODES = 10000
@@ -28,7 +28,7 @@ if __name__ == "__main__":
 
     action_dim = env.action_space('agent_0').n
     state_dim = env.state_space.shape[0]
-    agent = BDQAgent(state_dim=state_dim, action_dims=[action_dim, action_dim], num_actions=NUM_AGENTS, decay=0.9988, device=device)
+    agent = BDQAgent(state_dim=state_dim, action_dims=[action_dim, action_dim], num_actions=NUM_AGENTS, decay=0.9993, device=device)
     replay_buffer = ReplayBuffer(state_dimension=state_dim, action_dimension=NUM_AGENTS)
     
     episodes = NUM_EPISODES

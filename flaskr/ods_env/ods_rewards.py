@@ -29,13 +29,13 @@ class DefaultReward(AbstractReward):
 
 class ArslanReward(AbstractReward):
     class Params(AbstractReward.AbstractParams):
-        def __init__(self, aggregate_plr, throughput, past_utility, k=1, b=0.1,
+        def __init__(self, penalty, throughput, past_utility, concurrency, parallelism, K=1.0072, b=0.02,
                      pos_rew=1., neg_rew=-1., pos_thresh=0.2, neg_thresh=-0.2):
             super().__init__()
-            self.ag_plr = aggregate_plr
+            self.penalty = penalty
             self.throughput = throughput
             self.past_u = past_utility
-            self.K = k
+            self.K = K
             self.B = b
 
             self.pos_rew = pos_rew
@@ -43,11 +43,13 @@ class ArslanReward(AbstractReward):
             self.neg_rew = neg_rew
             self.neg_thresh = neg_thresh
 
+            self.total_threads = parallelism * concurrency
+
     @staticmethod
     def calculate(params: Params):
         # compute current utility
-        utility = params.throughput / params.K
-        utility -= (params.B * params.throughput * params.ag_plr)
+        utility = params.throughput / (params.K * params.total_threads)
+        utility -= (params.B * params.throughput * params.penalty)
 
         diff = utility - params.past_u
         reward = 0.

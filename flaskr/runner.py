@@ -1,18 +1,143 @@
-import time
-
+import gymnasium.spaces
 import numpy
+import pandas
 import torch
 import numpy as np
 import os
 from .ods_env import ods_influx_gym_env
 from flaskr import classes
-from .algos.ddpg import agents
+
+from .algos.ddpg import agents as ddpg_agents
+from .algos.bdq import agents as bdq_agents
+from algos.global_memory import ReplayBuffer as ReplayBufferBDQ
+
 from .algos.ddpg import memory
 from .algos.ddpg import utils
 from .ods_env.env_utils import smallest_throughput_rtt
 
+from abc import ABC, abstractmethod
+
+
+class AbstractTrainer(ABC):
+    def warm_buffer(self):
+        pass
+
+    @abstractmethod
+    def train(self, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    def evaluate(self):
+        pass
+
+    @abstractmethod
+    def set_create_request(self, create_opt_req):
+        pass
+
+    @abstractmethod
+    def close(self):
+        pass
+
 
 class Trainer(object):
+    def __init__(self) -> None:
+        print("Trainer: use Construct() instead")
+
+    @staticmethod
+    def construct(create_req: classes.CreateOptimizerRequest, **kwargs) -> AbstractTrainer:
+        optimizer_type = create_req.optimizerType
+        # vda2c = "VDA2C"
+        # bo = "BO"
+        # maddpg = "MADDPG"
+        ddpg = "DDPG"
+        bdq = "BDQ"
+
+        if optimizer_type == ddpg:
+            return DDPGTrainer(create_opt_request=create_req, **kwargs)
+
+        elif optimizer_type == bdq:
+            return BDQTrainer(create_req, **kwargs)
+
+
+def fetch_df(env: ods_influx_gym_env.InfluxEnv, obs_cols: list) -> pandas.DataFrame:
+    df = env.influx_client.query_space(time_window="-1d")
+    df = df[obs_cols]
+    df.drop_duplicates(inplace=True)
+    df.dropna(inplace=True)
+
+    return df
+
+
+class BDQTrainer(AbstractTrainer):
+    def __init__(self, create_opt_request: classes.CreateOptimizerRequest, max_episodes=100, batch_size=64):
+        self.obs_cols = ['active_core_count', 'allocatedMemory',
+                         'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
+                         'dropin', 'dropout', 'packet_loss_rate', 'chunkSize', 'concurrency',
+                         'destination_latency', 'destination_rtt', 'jobSize', 'parallelism',
+                         'pipelining', 'read_throughput', 'source_latency', 'source_rtt', 'write_throughput']
+
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-1d",
+                                                observation_columns=self.obs_cols)
+        state_dim = self.env.observation_space.shape[0]
+        # 1, 2, 4, 8, 16, 32 = Discrete(6)
+        # 2, 4, 8, 16, 32 = Discrete(5)
+        self.action_space = gymnasium.spaces.Discrete(5)
+        action_dim = self.action_space.n
+
+        self.params_to_actions = {
+            2: 0,
+            4: 1,
+            8: 2,
+            16: 3,
+            32: 4
+        }
+
+        self.agent = bdq_agents.BDQAgent(
+            state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2
+        )
+
+        self.replay_buffer = memory.ReplayBuffer(state_dimension=state_dim, action_dimension=action_dim)
+        self.warm_buffer()
+        self.save_file_name = f"BDQ_{'influx_gym_env'}"
+
+    def warm_buffer(self):
+        df = fetch_df(self.env, self.obs_cols)
+
+        for i in range(df.shape[0] - 1):
+            current_row = df.iloc[i]
+            obs = current_row[self.obs_cols]
+
+            params = obs[['parallelism', 'concurrency']]
+            action = [self.params_to_actions[p] for p in params]
+
+            next_obs = df.iloc[i + 1]
+            if next_obs['write_throughput'] < next_obs['read_throughput']:
+                thrpt = next_obs['write_throughput']
+                rtt = next_obs['destination_rtt']
+            else:
+                thrpt = next_obs['read_throughput']
+                rtt = next_obs['source_rtt']
+            reward = rtt * thrpt
+            terminated = False
+            self.replay_buffer.add(obs, action, next_obs, reward, terminated)
+
+        print("Finished Warming Buffer: size=", self.replay_buffer.size)
+
+    def train(self, max_episodes=5, launch_jobs=False):
+        pass
+
+    def evaluate(self):
+        pass
+
+    def set_create_request(self, create_opt_req):
+        pass
+
+    def close(self):
+        pass
+
+
+class DDPGTrainer(AbstractTrainer):
     def __init__(self, create_opt_request=classes.CreateOptimizerRequest, max_episodes=100, batch_size=64,
                  update_policy_time_steps=20):
         self.obs_cols = ['active_core_count', 'allocatedMemory',
@@ -29,7 +154,10 @@ class Trainer(object):
                                                 observation_columns=self.obs_cols)
         state_dim = self.env.observation_space.shape[0]
         action_dim = self.env.action_space.shape[0]
-        self.agent = agents.DDPGAgent(state_dim=state_dim, action_dim=action_dim, device=self.device, max_action=None)
+        self.agent = ddpg_agents.DDPGAgent(
+            state_dim=state_dim, action_dim=action_dim, device=self.device, max_action=None
+        )
+
         self.replay_buffer = memory.ReplayBuffer(state_dimension=state_dim, action_dimension=action_dim)
         self.warm_buffer()
         self.save_file_name = f"DDPG_{'influx_gym_env'}"

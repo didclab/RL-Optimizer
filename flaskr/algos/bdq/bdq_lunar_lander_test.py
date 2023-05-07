@@ -1,9 +1,8 @@
 import gymnasium
-from pettingzoo.butterfly import cooperative_pong_v5
 from agents import BDQAgent
 from algos.global_memory import ReplayBuffer
 import torch
-from algos.global_utils import evaluate_policy
+# from algos.global_utils import evaluate_policy
 import numpy as np
 
 BATCH_SIZE = 64

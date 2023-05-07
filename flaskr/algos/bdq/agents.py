@@ -163,36 +163,25 @@ class BDQAgent(AbstractAgent, object):
         q_values_mat = torch.stack(q_values_mat)
 
         # compute sum of Q values across advantage nets
-        sum_q = self.discount * (q_values_mat.sum(0) / self.num_actions)
-        sum_q = sum_q * not_dones
-        sum_q = sum_q.transpose(0, 1)
+        # sum_q = self.discount * (q_values_mat.sum(0) / self.num_actions)
+        # sum_q = sum_q * not_dones
+        # sum_q = sum_q.transpose(0, 1)
 
-        # for j in range(num_samples):
-        #     sum_q = 0
-        #     not_done = (not_dones[0] == 1.).item()
-
-        #     if not_done:
-        #         for i in range(self.num_actions):
-        #             # action = test_index[i, j]
-        #             q_values = q_values_mat[i, j, action]
-
-        #             sum_q += q_values
-
-        #         sum_q = sum_q / self.num_actions
-        #         trajectory.append(self.discount * sum_q)
-        #     else:
-        #         trajectory.append(torch.tensor([0.], device=self.device))
-
-        # trajectory = torch.stack(trajectory).reshape(1, num_samples)
+        all_q = self.discount * (q_values_mat.squeeze(-1) / self.num_actions)
+        all_q = all_q * not_dones.transpose(0, 1)
+        
         rewards = rewards.transpose(0, 1)
         
-        target = rewards + sum_q
-        target = target.detach()
+        # target = rewards + sum_q
+        all_target = rewards + all_q
+        # target = target.detach()
+        all_target = all_target.detach()
 
-        q_values_avg = q_values_actual.sum(0).unsqueeze(0) / self.num_actions
+        # q_values_avg = q_values_actual.sum(0).unsqueeze(0) / self.num_actions
         
-        loss = F.mse_loss(q_values_avg, target)
-        return loss, q_values_actual, target
+        # loss = F.mse_loss(q_values_avg, target)
+        loss = F.mse_loss(q_values_actual, all_target)
+        return loss, q_values_actual, all_target
 
     def train(self, replay_buffer, batch_size=64):
         state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
@@ -207,10 +196,10 @@ class BDQAgent(AbstractAgent, object):
 
         loss.backward()
         # self.optimizer.step()
-        self.optimizer_pre.step()
-        self.optimizer_state.step()
         for i in range(self.num_actions):
             self.optimizer_advs[i].step()
+        self.optimizer_state.step()
+        self.optimizer_pre.step()
 
         BDQAgent.soft_update(self.pre_net, self.pre_target, self.tau)
         BDQAgent.soft_update(self.state_net, self.state_target, self.tau)
