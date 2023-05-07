@@ -8,7 +8,10 @@ from flaskr.classes import CreateOptimizerRequest
 import flaskr.ods_env.ods_helper as oh
 from flaskr.ods_env import env_utils
 from flaskr.ods_env.influx_query import InfluxData
+
+from .ods_rewards import DefaultReward, ArslanReward
 import requests
+
 requests.packages.urllib3.disable_warnings()
 
 headers = {"Content-Type": "application/json"}
@@ -26,6 +29,7 @@ pd.set_option('display.colheader_justify', 'left')
 
 # set precision - 5
 pd.set_option('display.precision', 5)
+
 
 class InfluxEnv(gym.Env):
 
@@ -48,61 +52,90 @@ class InfluxEnv(gym.Env):
         if action_space_discrete:
             self.action_space = spaces.Discrete(3)  # drop stay increase
         else:
-            self.action_space = spaces.Box(low=1, high=32, shape=(2,)) #for now cc, p only
+            self.action_space = spaces.Box(low=1, high=32, shape=(2,))  # for now cc, p only
         self.action_space_max = 32 * 2
-            # So this is probably not defined totally properly as I assume dimensions are 0-infinity
+        # So this is probably not defined totally properly as I assume dimensions are 0-infinity
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),))
         self.past_rewards = []
         self.past_actions = []
         self.render_mode = render_mode
         self.past_job_ids = []
+
+        self.drop_in = 0
+        self.past_utility = 0
         print("Finished constructing the Influx Gym Env")
 
     """
     Stepping the env and a live transfer behind the scenes.
     Params: action = {"concurrency":1-64, "parallelism":1-64, "pipelining:1-100}
+            reward_type = None | 'default' | 'arslan' (default: None)
     Returns: observation: last non-na entry from influx which contains the action for that obs
              reward: the throughput * rtt of the slowest link(source or destination)
              done: the official status if this job is done. If it is done than we need to reset() which should launch a job?
              info: Currently None and not necessary I believe.
     """
 
-    def step(self, action):
+    def step(self, action, reward_type=None):
+        if reward_type is None:
+            reward_type = 'default'
+
         print("Step: action:", action)
 
         self.space_df = self.influx_client.query_space("-10s")
         self.space_df.drop_duplicates(inplace=True)
         self.space_df.dropna(inplace=True)
         terminated = False
+
         # Need to loop while we have not gotten the next observation of the agents.
         print(self.space_df[['read_throughput', "write_throughput"]])
         last_row = self.space_df.tail(n=1)
         observation = last_row[self.data_columns]
+        diff_drop_in = last_row['dropin'].iloc[-1] - self.drop_in
         self.job_id = last_row['jobId']
+
         # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
         terminated, meta = oh.query_if_job_done(self.job_id)
         if terminated:
-            print("JobId: ",self.job_id, " job is done")
-        if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[1] > self.create_opt_request.max_parallelism :
+            print("JobId: ", self.job_id, " job is done")
+        if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
+            1] > self.create_opt_request.max_parallelism:
             reward = -10000000
         else:
             if int(last_row['concurrency']) != action[0] or int(last_row['parallelism']) != action[1]:
-                oh.send_application_params_tuple(transfer_node_name=self.create_opt_request.node_id, cc=action[0], p=action[1], pp=1, chunkSize=0)
+                oh.send_application_params_tuple(transfer_node_name=self.create_opt_request.node_id, cc=action[0],
+                                                 p=action[1], pp=1, chunkSize=0)
 
             thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
             self.past_actions.append(action)
             totalBytes = int(meta['jobParameters']['jobSize'])
-            byte_ratio = ((thrpt/8) * rtt)/totalBytes
+            byte_ratio = ((thrpt / 8) * rtt) / totalBytes
             last_action = last_row['concurrency'].iloc[-1] + last_row['parallelism'].iloc[-1]
             action_ratio = last_action / self.action_space_max
             print("Byte Ratio=", byte_ratio, " thrpt=", thrpt, " * rtt=", rtt, " /totalBytes", totalBytes)
-            print("Action Ratio=", action_ratio, "last_action=", last_action, "/ action space max=", self.action_space_max)
-            reward = byte_ratio/action_ratio
+            print("Action Ratio=", action_ratio, "last_action=", last_action, "/ action space max=",
+                  self.action_space_max)
+            reward = byte_ratio / action_ratio
             print("Reward=", reward)
+
+        if reward_type == 'arslan':
+            reward_params = ArslanReward.Params(
+                penalty=diff_drop_in,
+                throughput=env_utils.smallest_throughput_rtt(last_row=last_row),
+                past_utility=self.past_utility,
+                concurrency=last_row['concurrency'].iloc[-1],
+                parallelism=last_row['parallelism'].iloc[-1]
+            )
+
+            reward, self.past_utility = ArslanReward.calculate(reward_params)
+            self.drop_in += diff_drop_in
+        else:
+            pass
+
         print("Step reward: ", reward)
         self.past_rewards.append(reward)
         # reward = self.reward_function(rtt, thrpt)
-        # this reward is of the last influx column which is mapped to that observation so this is the past time steps not the current actions rewards
+        # this reward is of the last influx column which is mapped to that
+        # observation so this is the past time steps not the current actions rewards
         return observation, reward, terminated, None, None
 
     """
@@ -119,7 +152,7 @@ class InfluxEnv(gym.Env):
             time.sleep(10)
 
         if len(self.past_actions) > 0 and len(self.past_rewards) > 0:
-            print("Average past rewards:", sum(self.past_rewards)/len(self.past_actions))
+            print("Average past rewards:", sum(self.past_rewards) / len(self.past_actions))
 
         self.past_actions.clear()
         self.past_rewards.clear()

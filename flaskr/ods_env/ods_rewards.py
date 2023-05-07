@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 
-import pandas
 import numpy as np
 
 
@@ -21,15 +20,15 @@ class AbstractReward(ABC):
 
 class DefaultReward(AbstractReward):
     class Params(AbstractReward.AbstractParams):
-        def __init__(self, rtt, thrpt):
+        def __init__(self, rtt, throughput):
             super().__init__()
             self.rtt = rtt
-            self.thrpt = thrpt
+            self.throughput = throughput
 
     @staticmethod
     def calculate(params: Params):
         rtt = params.rtt
-        thrpt = params.thrpt
+        thrpt = params.throughput
 
         return rtt * thrpt
 
@@ -54,7 +53,7 @@ class ArslanReward(AbstractReward):
 
     @staticmethod
     def construct(x, penalty='diff_dropin', K=1.0072, b=0.02):
-        t = x.read_throughput.to_numpy()
+        t = np.minimum(x.read_throughput, x.write_throughput)
         p = x.parallelism.to_numpy()
         cc = x.concurrency.to_numpy()
 

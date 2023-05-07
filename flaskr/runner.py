@@ -12,7 +12,7 @@ from flaskr import classes
 
 from .algos.ddpg import agents as ddpg_agents
 from .algos.bdq import agents as bdq_agents
-from algos.global_memory import ReplayBuffer as ReplayBufferBDQ
+# from algos.global_memory import ReplayBuffer as ReplayBufferBDQ
 
 from .algos.ddpg import memory
 from .algos.ddpg import utils
@@ -90,6 +90,7 @@ class BDQTrainer(AbstractTrainer):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-1d",
                                                 observation_columns=self.obs_cols)
+        self.create_opt_request = create_opt_request
         state_dim = self.env.observation_space.shape[0]
         # 1, 2, 4, 8, 16, 32 = Discrete(6)
         # 2, 4, 8, 16, 32 = Discrete(5)
@@ -146,13 +147,18 @@ class BDQTrainer(AbstractTrainer):
         pass
 
     def evaluate(self):
-        pass
+        avg_reward = utils.evaluate_policy(policy=self.agent, env=self.env)
+        self.agent.save_checkpoint(f"./models/{self.save_file_name}")
+        return avg_reward
 
     def set_create_request(self, create_opt_req):
-        pass
+        print("Updating the create_optimizer request in trainer and env to be: ", create_opt_req.__str__())
+        self.create_opt_request = create_opt_req
+        self.env.create_opt_request = create_opt_req
+        self.env.job_id = create_opt_req.job_id
 
     def close(self):
-        pass
+        self.env.close()
 
 
 class DDPGTrainer(AbstractTrainer):
