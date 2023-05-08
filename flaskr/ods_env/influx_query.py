@@ -5,10 +5,11 @@ from influxdb_client import InfluxDBClient
 
 
 class InfluxData:
-    #The transfer_node_name should probably come in during the create request
-    def __init__(self, bucket_name="OdsTransferNodes",transfer_node_name="jgoldverg@gmail.com-mac",file_name=None, time_window="-2m"):
+    # The transfer_node_name should probably come in during the create request
+    def __init__(self, bucket_name="OdsTransferNodes", transfer_node_name="jgoldverg@gmail.com-mac", file_name=None, time_window="-2m"):
         self.client = InfluxDBClient.from_config_file("config.ini")
-        self.space_keys = ['active_core_count, bytesDownloaded, bytesUploaded, chunkSize, concurrency, parallelism, pipelining, destination_rtt, source_rtt, read_throughput, write_throughput, ']
+        self.space_keys = [
+            'active_core_count, bytesDownloaded, bytesUploaded, chunkSize, concurrency, parallelism, pipelining, destination_rtt, source_rtt, read_throughput, write_throughput, ']
         self.query_api = self.client.query_api()
         self.time_window_to_query = time_window
         self.bucket_name = bucket_name
@@ -16,14 +17,20 @@ class InfluxData:
 
         self.input_file = file_name
 
-    def query_space(self, time_window='-2m', keys_to_expect=['bytesDownloaded', 'bytesUploaded', 'chunkSize', 'concurrency', 'destination_latency', 'destination_rtt', 'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt', 'write_throughput', 'jobId'], retry_count=10):
+    def query_space(self, time_window='-2m', keys_to_expect=None, retry_count=10) -> pd.DataFrame:
+        if keys_to_expect is None:
+            keys_to_expect = ['bytesDownloaded', 'bytesUploaded', 'chunkSize', 'concurrency', 'destination_latency',
+                              'destination_rtt', 'jobSize', 'parallelism', 'pipelining', 'read_throughput',
+                              'source_latency', 'source_rtt', 'write_throughput', 'jobId']
         q = '''from(bucket: "{}")
   |> range(start: {})
   |> filter(fn: (r) => r["_measurement"] == "transfer_data")
   |> filter(fn: (r) => r["APP_NAME"] == "{}")
   |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
-  '''.format(self.bucket_name,time_window, self.transfer_node_name)
+  '''.format(self.bucket_name, time_window, self.transfer_node_name)
         done = False
+
+        df = pd.DataFrame()
         while not done:
             df = self.query_api.query_data_frame(q)
             if type(df) == list:

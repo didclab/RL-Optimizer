@@ -105,7 +105,8 @@ def send_application_params_tuple(cc, p, pp, transfer_node_name, chunkSize=0):
     p = int(p)
     pp = int(pp)
     url = "http://{}:8061/apply/application/params".format(sched_ip)
-    params = TransferApplicationParams(transferNodeName=transfer_node_name, cc=str(cc), p=str(p), pp=str(pp), chunkSize=chunkSize)
+    params = TransferApplicationParams(transferNodeName=transfer_node_name, cc=str(
+        cc), p=str(p), pp=str(pp), chunkSize=chunkSize)
     json_str = json.dumps(params.__dict__)
     return requests.put(url=url, data=json_str, headers=headers)
 
@@ -141,7 +142,8 @@ def query_if_job_running(jobId):
 
 def submit_transfer_request(batch_info_json, optimizer):
     url = "http://{}:8061/receiveRequest".format(sched_ip)
-    tranferRequest = transform_batch_info_json_to_transfer_request(batch_info_json)
+    tranferRequest = transform_batch_info_json_to_transfer_request(
+        batch_info_json)
     if len(optimizer) > 0:
         tranferRequest.options.optimizer = optimizer
     return requests.post(url=url, data=transform_batch_info_json_to_transfer_request(batch_info_json).toJSON(),
@@ -161,28 +163,34 @@ def transform_batch_info_json_to_transfer_request(batch_info_json):
     if 'verify' in jobParameters:
         to.verify = bool(jobParameters['verify'])
     if 'overwrite' in jobParameters:
-        to.overwrite = bool(jobParameters['overwrite'])
+        to.overwrite = jobParameters['overwrite']
     info_list = []
     for step in batchSteps:
         step_name = step['step_name']  # get the step id
-        entityInfo = str(jobParameters[step_name])  # look up the stepName pojo in job params
+        # look up the stepName pojo in job params
+        entityInfo = str(jobParameters[step_name])
         comma_separated = entityInfo.split(",")
         file_id = comma_separated[0].split("id=")[1].strip()
         path = comma_separated[1].split("path=")[1].strip()
         size = comma_separated[2].split("size=")[1].strip()
         chunkSize = comma_separated[3].split("chunkSize=")[1].strip()
         chunkSize = chunkSize[:-1].strip()
-        itemInfo = ItemInfo(chunk_size=int(chunkSize), path=path, id=file_id, size=int(size))
+        itemInfo = ItemInfo(chunk_size=int(chunkSize),
+                            path=path, id=file_id, size=int(size))
         info_list.append(itemInfo)
     source_type = jobParameters['sourceCredentialType']
     source_cred_id = jobParameters['sourceCredential']
     source_base_path = jobParameters['sourceBasePath']
     source_parent_info = ItemInfo(path=source_base_path, id=source_base_path)
-    source = Source(infoList=info_list, type=source_type, credentialId=source_cred_id, parentInfo=source_parent_info)
+    source = Source(infoList=info_list, type=source_type,
+                    credentialId=source_cred_id, parentInfo=source_parent_info)
 
     dest_cred_type = jobParameters['destCredentialType']
     dest_cred_id = jobParameters['destCredential']
-    dest_parent_info = ItemInfo(path=jobParameters['destBasePath'], id=jobParameters['destBasePath'])
-    dest = Destination(credentialId=dest_cred_id, type=dest_cred_type, parentInto=dest_parent_info)
-    tr = TransferJobRequest(ownerId=jobParameters['ownerId'], source=source, dest=dest, TransfOp=to)
+    dest_parent_info = ItemInfo(
+        path=jobParameters['destBasePath'], id=jobParameters['destBasePath'])
+    dest = Destination(credentialId=dest_cred_id,
+                       type=dest_cred_type, parentInto=dest_parent_info)
+    tr = TransferJobRequest(
+        ownerId=jobParameters['ownerId'], source=source, dest=dest, TransfOp=to)
     return tr

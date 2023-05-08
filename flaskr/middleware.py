@@ -17,7 +17,8 @@ class OptimizerMap(object):
         self.vda2c = "VDA2C"
         self.bo = "BO"
         self.maddpg = "MADDPG"
-        self.ddpg="DDPG"
+        self.ddpg = "DDPG"
+        self.bdq = "BDQ"
 
     def get_optimizer(self, node_id):
         return self.optimizer_map[node_id]
@@ -42,21 +43,24 @@ class OptimizerMap(object):
                 env = ods_influx_parallel_env.raw_env()  # for now b/c its me the defaults for the env should be fine
                 env.reset()  # this reset needs to not launch a job as we are just creating the env
                 self.node_id_to_optimizer[create_req.node_id] = self.maddpg
-                self.optimizer_map[create_req.node_id] = ["optimizer_agent_here",env]  # the map should store the agent to the env as the value
+                self.optimizer_map[create_req.node_id] = ["optimizer_agent_here",
+                                                          env]  # the map should store the agent to the env as the value
                 return True
-            elif create_req.optimizerType == self.ddpg:
-                #if the job is from Elvis or I than it will see the old jobid and launch it.
-                trainer = Trainer(create_opt_request=create_req)
-                print("Created trainer")
-                self.node_id_to_optimizer[create_req.node_id] = self.ddpg
+
+            elif create_req.optimizerType == self.ddpg or create_req.optimizerType == self.bdq:
+                # if the job is from Elvis or I than it will see the old jobid and launch it.
+                trainer = Trainer.construct(create_opt_request=create_req)
+                print("Created trainer; type:", create_req.optimizerType)
+                self.node_id_to_optimizer[create_req.node_id] = create_req.optimizerType
                 self.optimizer_map[create_req.node_id] = trainer
                 thread = threading.Thread(target=trainer.train)
                 thread.start()
                 return True
+
             else:
                 return False
         else:
-            if create_req.optimizerType == self.ddpg:
+            if create_req.optimizerType == self.ddpg or create_req.optimizerType == self.bdq:
                 trainer = self.optimizer_map[create_req.node_id]
                 # update the create optimizer to be the last one from the TS.
                 trainer.set_create_request(create_opt_req=create_req)
@@ -110,7 +114,6 @@ class OptimizerMap(object):
             else:
                 trainer.close()
                 del self.optimizer_map[delete_req.node_id]
-
 
         return delete_req.node_id
 

@@ -3,6 +3,7 @@ from abc import ABC
 
 import gym
 import numpy as np
+import pandas.core.groupby.base
 import torch
 from pandas import isna, read_csv
 import pickle
@@ -108,7 +109,7 @@ class InfluxData:
 
         self.input_file = file_name
 
-    def query_space(self, time_window='-2m'):
+    def query_space(self, time_window='-2m') -> pandas.DataFrame:
         q = '''from(bucket: "elvisdav@buffalo.edu")
   |> range(start: {})
   |> filter(fn: (r) => r["_measurement"] == "transfer_data")
