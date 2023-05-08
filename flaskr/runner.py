@@ -12,7 +12,7 @@ from flaskr import classes
 
 from .algos.ddpg import agents as ddpg_agents
 from .algos.bdq import agents as bdq_agents
-# from algos.global_memory import ReplayBuffer as ReplayBufferBDQ
+from algos.global_memory import ReplayBuffer as ReplayBufferBDQ
 
 from .algos.ddpg import memory
 from .algos.ddpg import utils
@@ -74,13 +74,30 @@ def fetch_df(env: ods_influx_gym_env.InfluxEnv, obs_cols: list) -> pandas.DataFr
     return df
 
 
+def convert_to_action(par, params_to_actions) -> int:
+    """
+    Converts influx parallelism or concurrency to action of BDQ agent.
+    If not a perfect fit, attempts to approximate through rounding of logs.
+    Params:
+            par = parameter value to convert
+            params_to_actions = dictionary to convert to action
+    Returns: BDQ agent action.
+    """
+
+    par = int(par)
+    if par in params_to_actions:
+        return params_to_actions[par]
+    else:
+        return int(np.exp2(np.round(np.log2(par))))
+
+
 class BDQTrainer(AbstractTrainer):
     def __init__(self, create_opt_request: classes.CreateOptimizerRequest, max_episodes=100, batch_size=64):
         self.total_obs_cols = ['active_core_count', 'allocatedMemory',
-                         'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
-                         'dropin', 'dropout', 'packet_loss_rate', 'chunkSize', 'concurrency',
-                         'destination_latency', 'destination_rtt', 'jobSize', 'parallelism',
-                         'pipelining', 'read_throughput', 'source_latency', 'source_rtt', 'write_throughput']
+                               'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
+                               'dropin', 'dropout', 'packet_loss_rate', 'chunkSize', 'concurrency',
+                               'destination_latency', 'destination_rtt', 'jobSize', 'parallelism',
+                               'pipelining', 'read_throughput', 'source_latency', 'source_rtt', 'write_throughput']
 
         self.obs_cols = ['allocatedMemory', 'cpu_frequency_current', 'dropin', 'dropout', 'packet_loss_rate',
                          'chunkSize', 'concurrency', 'destination_latency', 'destination_rtt', 'jobSize',
@@ -96,6 +113,8 @@ class BDQTrainer(AbstractTrainer):
         # 2, 4, 8, 16, 32 = Discrete(5)
         self.action_space = gymnasium.spaces.Discrete(5)
         action_dim = self.action_space.n
+        self.batch_size = batch_size
+        self.max_episodes = max_episodes
 
         self.params_to_actions = {
             2: 0,
@@ -105,15 +124,18 @@ class BDQTrainer(AbstractTrainer):
             32: 4
         }
 
+        self.actions_to_params = list(self.params_to_actions.keys())
+
         self.agent = bdq_agents.BDQAgent(
             state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2
         )
 
-        self.replay_buffer = memory.ReplayBuffer(state_dimension=state_dim, action_dimension=action_dim)
+        self.replay_buffer = ReplayBufferBDQ(state_dimension=state_dim, action_dimension=action_dim)
         self.stats = None
 
         self.warm_buffer()
         self.save_file_name = f"BDQ_{'influx_gym_env'}"
+        self.training_flag = False
 
     def warm_buffer(self):
         df = fetch_df(self.env, self.obs_cols)
@@ -131,20 +153,75 @@ class BDQTrainer(AbstractTrainer):
             obs = current_row[self.obs_cols]
 
             params = obs[['parallelism', 'concurrency']]
-            action = [self.params_to_actions[p] for p in params]
+            action = [convert_to_action(p, self.params_to_actions) for p in params]
 
             next_obs = df.iloc[i + 1]
             reward = ArslanReward.compare(current_row['utility'], next_obs['utility'])
             terminated = False
 
-            norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
-            norm_next_obs = (next_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
+            # norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
+            # norm_next_obs = (next_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
+
+            norm_obs = obs
+            norm_next_obs = next_obs
+
             self.replay_buffer.add(norm_obs, action, norm_next_obs, reward, terminated)
 
         print("Finished Warming Buffer: size=", self.replay_buffer.size)
 
-    def train(self, max_episodes=5, launch_jobs=False):
-        pass
+    def train(self, max_episodes=5, launch_job=False):
+        self.training_flag = True
+
+        episode_rewards = []
+        lj = launch_job
+        options = {'launch_job': lj}
+        print("Before the first env reset()")
+        obs = self.env.reset(options=options)[0]  # gurantees job is running
+        print("State in train(): ", obs, "\t", "type: ", type(obs))
+        obs = np.asarray(a=obs, dtype=numpy.float64)
+        lj = False  # previous line launched a job
+        # episode = 1 transfer job
+
+        means = self.stats.loc['mean']
+        stds = self.stats.loc['std']
+
+        ts = 0
+        for episode in range(max_episodes):
+            episode_reward = 0
+            terminated = False
+            while not terminated:
+                actions = self.agent.select_action(np.array(obs))
+                # action = np.clip(action, 1, 32)
+                params = [self.actions_to_params[a] for a in actions]
+
+                new_obs, reward, terminated, truncated, info = self.env.step(params)
+                ts += 1
+
+                # norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / \
+                #            (stds[self.obs_cols].to_numpy() + 1e-4)
+                # norm_next_obs = (new_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
+
+                norm_obs = obs
+                norm_next_obs = new_obs
+
+                self.replay_buffer.add(norm_obs, actions, norm_next_obs, reward, terminated)
+                obs = new_obs
+
+                if self.replay_buffer.size > self.batch_size:
+                    self.agent.train(replay_buffer=self.replay_buffer, batch_size=self.batch_size)
+
+                episode_reward += reward
+                if terminated:
+                    obs = self.env.reset(options={'launch_job': True})[0]
+                    obs = np.asarray(a=obs, dtype=numpy.float64)
+                    print("Episode reward: {}", episode_reward)
+                    episode_rewards.append(episode_reward)
+
+        self.training_flag = False
+        self.agent.save_checkpoint("influx_gym_env")
+        self.env.render(mode="graph")
+        self.training_flag = False
+        return episode_rewards
 
     def evaluate(self):
         avg_reward = utils.evaluate_policy(policy=self.agent, env=self.env)
