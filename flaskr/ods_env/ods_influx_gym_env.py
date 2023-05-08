@@ -76,9 +76,6 @@ class InfluxEnv(gym.Env):
     """
 
     def step(self, action, reward_type=None):
-        if reward_type is None:
-            reward_type = 'default'
-
         print("Step: action:", action)
 
         self.space_df = self.influx_client.query_space("-10s")
@@ -100,36 +97,50 @@ class InfluxEnv(gym.Env):
         if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
             1] > self.create_opt_request.max_parallelism:
             reward = -10000000
+
         else:
             if int(last_row['concurrency']) != action[0] or int(last_row['parallelism']) != action[1]:
-                oh.send_application_params_tuple(transfer_node_name=self.create_opt_request.node_id, cc=action[0],
-                                                 p=action[1], pp=1, chunkSize=0)
+                oh.send_application_params_tuple(
+                    transfer_node_name=self.create_opt_request.node_id,
+                    cc=action[0], p=action[1], pp=1, chunkSize=0
+                )
 
-            thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
-            self.past_actions.append(action)
-            totalBytes = int(meta['jobParameters']['jobSize'])
-            byte_ratio = ((thrpt / 8) * rtt) / totalBytes
-            last_action = last_row['concurrency'].iloc[-1] + last_row['parallelism'].iloc[-1]
-            action_ratio = last_action / self.action_space_max
-            print("Byte Ratio=", byte_ratio, " thrpt=", thrpt, " * rtt=", rtt, " /totalBytes", totalBytes)
-            print("Action Ratio=", action_ratio, "last_action=", last_action, "/ action space max=",
-                  self.action_space_max)
-            reward = byte_ratio / action_ratio
-            print("Reward=", reward)
+            if reward_type == 'arslan':
+                reward_params = ArslanReward.Params(
+                    penalty=diff_drop_in,
+                    throughput=env_utils.smallest_throughput_rtt(last_row=last_row),
+                    past_utility=self.past_utility,
+                    concurrency=last_row['concurrency'].iloc[-1],
+                    parallelism=last_row['parallelism'].iloc[-1]
+                )
 
-        if reward_type == 'arslan':
-            reward_params = ArslanReward.Params(
-                penalty=diff_drop_in,
-                throughput=env_utils.smallest_throughput_rtt(last_row=last_row),
-                past_utility=self.past_utility,
-                concurrency=last_row['concurrency'].iloc[-1],
-                parallelism=last_row['parallelism'].iloc[-1]
-            )
+                reward, self.past_utility = ArslanReward.calculate(reward_params)
+                self.drop_in += diff_drop_in
+                self.past_actions.append(action)
 
-            reward, self.past_utility = ArslanReward.calculate(reward_params)
-            self.drop_in += diff_drop_in
-        else:
-            pass
+            elif reward_type == 'default':
+                thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
+                self.past_actions.append(action)
+                thrpt = thrpt / 8
+
+                reward_params = DefaultReward.Params(
+                    rtt=rtt,
+                    throughput=thrpt
+                )
+                reward = DefaultReward.calculate(reward_params)
+
+            else:
+                thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
+                self.past_actions.append(action)
+                totalBytes = int(meta['jobParameters']['jobSize'])
+                byte_ratio = ((thrpt / 8) * rtt) / totalBytes
+                last_action = last_row['concurrency'].iloc[-1] + last_row['parallelism'].iloc[-1]
+                action_ratio = last_action / self.action_space_max
+                print("Byte Ratio=", byte_ratio, " thrpt=", thrpt, " * rtt=", rtt, " /totalBytes", totalBytes)
+                print("Action Ratio=", action_ratio, "last_action=", last_action, "/ action space max=",
+                      self.action_space_max)
+                reward = byte_ratio / action_ratio
+                print("Reward=", reward)
 
         print("Step reward: ", reward)
         self.past_rewards.append(reward)
