@@ -5,7 +5,8 @@ import numpy as np
 
 class AbstractReward(ABC):
     class AbstractParams(ABC):
-        def __init__(self):
+        @abstractmethod
+        def __init__(self, *args, **kwargs):
             pass
 
     @staticmethod
@@ -21,7 +22,7 @@ class AbstractReward(ABC):
 class DefaultReward(AbstractReward):
     class Params(AbstractReward.AbstractParams):
         def __init__(self, rtt, throughput):
-            super().__init__()
+            # super().__init__()
             self.rtt = rtt
             self.throughput = throughput
 
@@ -33,11 +34,35 @@ class DefaultReward(AbstractReward):
         return rtt * thrpt
 
 
+class JacobReward(AbstractReward):
+    class Params(AbstractReward.AbstractParams):
+        def __init__(self, throughput, rtt, total_bytes, last_concurrency, last_parallelism, action_space_max):
+            # super().__init__()
+            self.throughput = throughput
+            self.rtt = rtt
+            self.total_bytes = total_bytes
+            self.action_space_max = action_space_max
+            # why add and not multiply?
+            self.last_action = last_parallelism + last_concurrency
+
+    @staticmethod
+    def calculate(params: Params):
+        byte_ratio = ((params.throughput / 8) * params.rtt) / params.total_bytes
+        action_ratio = params.last_action / params.action_space_max
+
+        print("Byte Ratio=", byte_ratio,
+              " thrpt=", params.throughput, " * rtt=", params.rtt, " /totalBytes", params.total_bytes)
+        print("Action Ratio=", action_ratio, "last_action=", params.last_action, "/ action space max=",
+              params.action_space_max)
+
+        return byte_ratio / action_ratio
+
+
 class ArslanReward(AbstractReward):
     class Params(AbstractReward.AbstractParams):
         def __init__(self, penalty, throughput, past_utility, concurrency, parallelism, K=1.0072, b=0.02,
                      pos_rew=1., neg_rew=-1., pos_thresh=100, neg_thresh=-100):
-            super().__init__()
+            # super().__init__()
             self.penalty = penalty
             self.throughput = throughput
             self.past_u = past_utility

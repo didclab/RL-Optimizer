@@ -9,7 +9,7 @@ import flaskr.ods_env.ods_helper as oh
 from flaskr.ods_env import env_utils
 from flaskr.ods_env.influx_query import InfluxData
 
-from .ods_rewards import DefaultReward, ArslanReward
+from .ods_rewards import DefaultReward, ArslanReward, JacobReward
 import requests
 
 requests.packages.urllib3.disable_warnings()
@@ -133,13 +133,17 @@ class InfluxEnv(gym.Env):
                 thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
                 self.past_actions.append(action)
                 totalBytes = int(meta['jobParameters']['jobSize'])
-                byte_ratio = ((thrpt / 8) * rtt) / totalBytes
-                last_action = last_row['concurrency'].iloc[-1] + last_row['parallelism'].iloc[-1]
-                action_ratio = last_action / self.action_space_max
-                print("Byte Ratio=", byte_ratio, " thrpt=", thrpt, " * rtt=", rtt, " /totalBytes", totalBytes)
-                print("Action Ratio=", action_ratio, "last_action=", last_action, "/ action space max=",
-                      self.action_space_max)
-                reward = byte_ratio / action_ratio
+
+                reward_params = JacobReward.Params(
+                    throughput=thrpt,
+                    rtt=rtt,
+                    total_bytes=totalBytes,
+                    last_concurrency=last_row['concurrency'].iloc[-1],
+                    last_parallelism=last_row['parallelism'].iloc[-1],
+                    action_space_max=self.action_space_max
+                )
+
+                reward = JacobReward.calculate(reward_params)
                 print("Reward=", reward)
 
         print("Step reward: ", reward)
