@@ -161,6 +161,7 @@ trained_models/
 config.ini
 *.png
 venv
+data/
 
 main.py
 neural_nets.py

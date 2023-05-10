@@ -91,6 +91,23 @@ def convert_to_action(par, params_to_actions) -> int:
         return int(np.exp2(np.round(np.log2(par))))
 
 
+def load_clean_norm_dataset(path: str) -> pandas.DataFrame:
+    df = pandas.read_csv(path)
+
+    df_pivot = pandas.pivot_table(df, index='_time', columns='_field', values='_value', aggfunc=np.sum)
+    df_pivot = df_pivot.drop(['_field', 'string', 'true'], axis=1)
+    df_pivot.columns.rename(None, inplace=True)
+
+    for c in df_pivot.columns:
+        df_pivot[c] = pandas.to_numeric(df_pivot[c], errors='ignore')
+
+    df_pivot = df_pivot.select_dtypes(include=np.number)
+    df_pivot = df_pivot.dropna(axis=1, how='all')
+    df_final = df_pivot.dropna(axis=0, how='any')
+
+    return df_final
+
+
 class BDQTrainer(AbstractTrainer):
     def __init__(self, create_opt_request: classes.CreateOptimizerRequest, max_episodes=100, batch_size=64):
         self.total_obs_cols = ['active_core_count', 'allocatedMemory',
@@ -131,7 +148,9 @@ class BDQTrainer(AbstractTrainer):
         )
 
         self.replay_buffer = ReplayBufferBDQ(state_dimension=state_dim, action_dimension=action_dim)
-        self.stats = None
+
+        self.norm_data = load_clean_norm_dataset('data/benchmark_data.csv')
+        self.stats = self.norm_data.describe()
 
         self.warm_buffer()
         self.save_file_name = f"BDQ_{'influx_gym_env'}"
@@ -141,7 +160,6 @@ class BDQTrainer(AbstractTrainer):
         df = fetch_df(self.env, self.obs_cols)
 
         # initialize stats here
-        self.stats = df.describe()
         means = self.stats.loc['mean']
         stds = self.stats.loc['std']
 
@@ -159,11 +177,11 @@ class BDQTrainer(AbstractTrainer):
             reward = ArslanReward.compare(current_row['utility'], next_obs['utility'])
             terminated = False
 
-            # norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
-            # norm_next_obs = (next_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
+            norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
+            norm_next_obs = (next_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
 
-            norm_obs = obs
-            norm_next_obs = next_obs
+            # norm_obs = obs
+            # norm_next_obs = next_obs
 
             self.replay_buffer.add(norm_obs, action, norm_next_obs, reward, terminated)
 
