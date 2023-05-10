@@ -215,12 +215,12 @@ class BDQTrainer(AbstractTrainer):
                 new_obs, reward, terminated, truncated, info = self.env.step(params)
                 ts += 1
 
-                # norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / \
-                #            (stds[self.obs_cols].to_numpy() + 1e-4)
-                # norm_next_obs = (new_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
+                norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / \
+                           (stds[self.obs_cols].to_numpy() + 1e-4)
+                norm_next_obs = (new_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
 
-                norm_obs = obs
-                norm_next_obs = new_obs
+                # norm_obs = obs
+                # norm_next_obs = new_obs
 
                 self.replay_buffer.add(norm_obs, actions, norm_next_obs, reward, terminated)
                 obs = new_obs
