@@ -49,7 +49,7 @@ class OptimizerMap(object):
 
             elif create_req.optimizerType == self.ddpg or create_req.optimizerType == self.bdq:
                 # if the job is from Elvis or I than it will see the old jobid and launch it.
-                trainer = Trainer.construct(create_opt_request=create_req)
+                trainer = Trainer.construct(create_req=create_req)
                 print("Created trainer; type:", create_req.optimizerType)
                 self.node_id_to_optimizer[create_req.node_id] = create_req.optimizerType
                 self.optimizer_map[create_req.node_id] = trainer

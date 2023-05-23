@@ -173,7 +173,7 @@ class InfluxEnv(gym.Env):
         self.past_rewards.clear()
         # env launches the last job again.
         newer_df = self.influx_client.query_space("-5m")  # last min is 2 points.
-        self.space_df.append(newer_df)
+        self.space_df = pd.concat([self.space_df, newer_df])
         self.space_df.drop_duplicates(inplace=True)
         self.space_df.dropna(inplace=True)
         obs = self.space_df[self.data_columns].tail(n=1)
