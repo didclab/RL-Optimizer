@@ -12,7 +12,7 @@ from flaskr import classes
 
 from .algos.ddpg import agents as ddpg_agents
 from .algos.bdq import agents as bdq_agents
-from algos.global_memory import ReplayBuffer as ReplayBufferBDQ
+from .algos.global_memory import ReplayBuffer as ReplayBufferBDQ
 
 from .algos.ddpg import memory
 from .algos.ddpg import utils
