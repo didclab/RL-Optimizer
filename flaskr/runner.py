@@ -105,6 +105,8 @@ def load_clean_norm_dataset(path: str) -> pandas.DataFrame:
     df_pivot = df_pivot.dropna(axis=1, how='all')
     df_final = df_pivot.dropna(axis=0, how='any')
 
+    df_final.insert(0, 'diff_dropin', df_final['dropin'].diff(periods=1).fillna(0))
+
     return df_final
 
 
