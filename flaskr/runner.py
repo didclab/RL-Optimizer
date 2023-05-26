@@ -69,7 +69,7 @@ def fetch_df(env: ods_influx_gym_env.InfluxEnv, obs_cols: list) -> pandas.DataFr
     df.dropna(inplace=True)
 
     # create diff-drop-in column inplace
-    df.assign(diff_dropin=df['dropin'].diff(periods=1).fillna(0))
+    df.insert(0, 'diff_dropin', df['dropin'].diff(periods=1).fillna(0))
 
     return df
 
