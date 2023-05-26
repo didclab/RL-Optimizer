@@ -85,6 +85,7 @@ def at_exit():
 app = Flask(__name__)
 start = time.time()
 
+
 @app.route('/optimizer/create/training', methods=['POST'])
 def create_optimizer_training():
     if request.method == 'POST':
@@ -92,6 +93,7 @@ def create_optimizer_training():
         print(json_dict)
         create_opt = CreateOptimizerRequest(json_dict['nodeId'], json_dict['optimizerType'], json_dict['oldJobId'])
         print(create_opt.__str__())
+
 
 @app.route('/optimizer/create', methods=['POST'])
 def create_optimizer():
@@ -101,7 +103,8 @@ def create_optimizer():
         print(json_dict)
         create_opt = CreateOptimizerRequest(json_dict['nodeId'], json_dict['maxConcurrency'],
                                             json_dict['maxParallelism'], json_dict['maxPipelining'],
-                                            json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'], json_dict['jobId'])
+                                            json_dict['maxChunkSize'], json_dict['optimizerType'],
+                                            json_dict['fileCount'], json_dict['jobId'])
         print(create_opt.__str__())
         if 'launch_job' in json_dict:
             create_opt.set_launch_job(json_dict['launch_job'])
@@ -117,17 +120,22 @@ def create_optimizer():
                 scheduler.add_job(opt.envs.fetch_and_train, trigger='interval', seconds=15)
                 scheduler.start()
 
+        # this is stupid; will refactor
         elif create_opt.optimizerType == optim_map.bo:
             optim_map.create_optimizer(create_opt)
 
         elif create_opt.optimizerType == optim_map.maddpg:
-            #creates the optimizer maddpg
+            # creates the optimizer maddpg
             optim_map.create_optimizer(create_opt)
 
         elif create_opt.optimizerType == optim_map.ddpg:
             optim_map.create_optimizer(create_opt)
 
+        elif create_opt.optimizerType == optim_map.bdq:
+            optim_map.create_optimizer(create_opt)
+
         return ('', 204)
+
 
 @app.route('/optimizer/parameters', methods=['GET'])
 def input_to_optimizer():
@@ -210,7 +218,8 @@ def delete_optimizer():
                     save_path = os.path.join(args.save_dir, args.algo)
 
                     if fast_slow_switch == 1:
-                        os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/short-time-%d.log" % log_counts[0])
+                        os.system(
+                            "mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/short-time-%d.log" % log_counts[0])
                         os.system("ssh serv ./restrict_link.sh eno1 2000 10000")
 
                         model_path = os.path.join(save_path, "unrestricted-%d.pt" % log_counts[0])
@@ -222,7 +231,8 @@ def delete_optimizer():
 
                         print('Switching to slow transfers; Episode', num_episodes)
                     elif fast_slow_switch == 0:
-                        os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d.log" % log_counts[1])
+                        os.system(
+                            "mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/long-time-%d.log" % log_counts[1])
                         os.system("ssh serv ./free_link.sh eno1")
 
                         model_path = os.path.join(save_path, "restricted-%d.pt" % log_counts[1])
@@ -234,7 +244,9 @@ def delete_optimizer():
 
                         print('Switching to fast transfers; Episode', num_episodes)
                     else:  # dead code for now
-                        os.system("mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/longer-time-%d.log" % log_counts[2])
+                        os.system(
+                            "mv /home/cc/rl-optimizer/time.log /home/cc/rl-optimizer/longer-time-%d.log" % log_counts[
+                                2])
                         os.system("sudo /home/cc/wondershaper/wondershaper -c -a eno1")
                         print('Switching to fast transfers; Episode', num_episodes)
                     optim_map.true_delete(delete_op)
