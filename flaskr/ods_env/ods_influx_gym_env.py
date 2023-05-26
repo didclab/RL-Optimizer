@@ -191,11 +191,14 @@ class InfluxEnv(gym.Env):
         print("Viewing the graphs on influxdb is probably best but here is stuff from the last epoch")
         print("Rewards: thrpt*rtt", self.past_rewards)
         print("Data")
+
+        # this below will need debugging
         if mode == "graph":
-            plot = self.space_df.plot(columns=self.data_columns)
+            # plot = self.space_df.plot(columns=self.data_columns)
+            plot = self.space_df.plot(ylabel=self.data_columns)
             fig = plot.get_figure()
-            plt_file_name = '../plots/' + self.create_opt_request.node_id + "_" + str(self.job_id) + str('_.png')
-            fig.savefig(plt_file_name)
+            # plt_file_name = '../plots/' + self.create_opt_request.node_id + "_" + str(self.job_id) + str('_.png')
+            # fig.savefig(plt_file_name)
 
     """
     Closes in the influx client behind the scenes
