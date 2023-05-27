@@ -60,3 +60,13 @@ class OdsHelperTest(unittest.TestCase):
         print(transfer_response)
         print(transfer_response.json())
         assert transfer_response.status_code == 200
+
+    def test_query_job_batch_direct(self):
+        first_job_id = 13620
+        job_meta = ods_helper.query_batch_job_direct(first_job_id)
+        print(job_meta)
+
+    def test_query_job_ids_direct(self):
+        job_ids = ods_helper.query_job_ids_direct()
+        print(job_ids)
+
