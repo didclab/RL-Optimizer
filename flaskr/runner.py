@@ -88,7 +88,7 @@ def convert_to_action(par, params_to_actions) -> int:
     if par in params_to_actions:
         return params_to_actions[par]
     else:
-        return int(np.exp2(np.round(np.log2(par))))
+        return int(np.round(np.log2(par)))
 
 
 def load_clean_norm_dataset(path: str) -> pandas.DataFrame:
@@ -132,6 +132,8 @@ class BDQTrainer(AbstractTrainer):
         # 2, 4, 8, 16, 32 = Discrete(5)
         self.action_space = gymnasium.spaces.Discrete(5)
         action_dim = self.action_space.n
+        self.branches = 2
+        
         self.batch_size = batch_size
         self.max_episodes = max_episodes
 
@@ -149,7 +151,7 @@ class BDQTrainer(AbstractTrainer):
             state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2
         )
 
-        self.replay_buffer = ReplayBufferBDQ(state_dimension=state_dim, action_dimension=action_dim)
+        self.replay_buffer = ReplayBufferBDQ(state_dimension=state_dim, action_dimension=self.branches)
 
         self.norm_data = load_clean_norm_dataset('data/benchmark_data.csv')
         self.stats = self.norm_data.describe()
@@ -166,7 +168,7 @@ class BDQTrainer(AbstractTrainer):
         stds = self.stats.loc['std']
 
         # create utility column inplace
-        df.assign(utility=lambda x: ArslanReward.construct(x, penalty='diff_dropin'))
+        df = df.assign(utility=lambda x: ArslanReward.construct(x, penalty='diff_dropin'))
 
         for i in range(df.shape[0] - 1):
             current_row = df.iloc[i]
@@ -175,12 +177,14 @@ class BDQTrainer(AbstractTrainer):
             params = obs[['parallelism', 'concurrency']]
             action = [convert_to_action(p, self.params_to_actions) for p in params]
 
-            next_obs = df.iloc[i + 1]
-            reward = ArslanReward.compare(current_row['utility'], next_obs['utility'])
+            next_row = df.iloc[i + 1]
+            next_obs = next_row[self.obs_cols]
+            
+            reward = ArslanReward.compare(current_row['utility'], next_row['utility'])
             terminated = False
 
             norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
-            norm_next_obs = (next_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
+            norm_next_obs = (next_obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
 
             # norm_obs = obs
             # norm_next_obs = next_obs
@@ -214,12 +218,13 @@ class BDQTrainer(AbstractTrainer):
                 # action = np.clip(action, 1, 32)
                 params = [self.actions_to_params[a] for a in actions]
 
-                new_obs, reward, terminated, truncated, info = self.env.step(params)
+                new_obs, reward, terminated, truncated, info = self.env.step(params, reward_type='arslan')
                 ts += 1
 
-                norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / \
+                norm_obs = (obs - means[self.obs_cols].to_numpy()) / \
                            (stds[self.obs_cols].to_numpy() + 1e-4)
-                norm_next_obs = (new_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
+                norm_next_obs = (new_obs - means[self.obs_cols].to_numpy()) / \
+                    (stds[self.obs_cols].to_numpy() + 1e-3)
 
                 # norm_obs = obs
                 # norm_next_obs = new_obs

@@ -108,7 +108,7 @@ class InfluxEnv(gym.Env):
             if reward_type == 'arslan':
                 reward_params = ArslanReward.Params(
                     penalty=diff_drop_in,
-                    throughput=env_utils.smallest_throughput_rtt(last_row=last_row),
+                    throughput=env_utils.smallest_throughput_rtt(last_row=last_row)[0],
                     past_utility=self.past_utility,
                     concurrency=last_row['concurrency'].iloc[-1],
                     parallelism=last_row['parallelism'].iloc[-1]
