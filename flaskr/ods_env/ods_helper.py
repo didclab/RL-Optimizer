@@ -98,6 +98,7 @@ Sends an actions to the transfer node we configured the influx client with
 """
 monitor_ip = os.getenv("MONITORING_SERVICE_IP", default="localhost")
 sched_ip = os.getenv("TRANSFER_SCHEDULER_IP", default="localhost")
+transfer_service_ip = os.getenv("TRANSFER_SERVICE_URL", default="localhost")
 
 
 def send_application_params_tuple(cc, p, pp, transfer_node_name, chunkSize=0):
@@ -194,3 +195,13 @@ def transform_batch_info_json_to_transfer_request(batch_info_json):
     tr = TransferJobRequest(
         ownerId=jobParameters['ownerId'], source=source, dest=dest, TransfOp=to)
     return tr
+
+def query_batch_job_direct(jobId):
+    url = "{}/api/v1/job/execution".format(transfer_service_ip)
+    params = {"jobId": jobId}
+    return requests.get(url=url, params=params, headers=headers).json()
+
+def query_job_ids_direct():
+    url = "{}/api/v1/job/ids".format(transfer_service_ip)
+    return requests.get(url=url, headers=headers).json()
+
