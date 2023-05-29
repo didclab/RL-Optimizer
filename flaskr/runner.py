@@ -4,6 +4,7 @@ import pandas
 import torch
 import numpy as np
 import os
+import time
 
 from .ods_env import ods_influx_gym_env
 from .ods_env.ods_rewards import ArslanReward
@@ -193,7 +194,7 @@ class BDQTrainer(AbstractTrainer):
 
         print("Finished Warming Buffer: size=", self.replay_buffer.size)
 
-    def train(self, max_episodes=5, launch_job=False):
+    def train(self, max_episodes=3, launch_job=False):
         self.training_flag = True
 
         episode_rewards = []
@@ -213,7 +214,10 @@ class BDQTrainer(AbstractTrainer):
         for episode in range(max_episodes):
             episode_reward = 0
             terminated = False
+
+            print("BDQTrainer.train(): starting episode", episode+1)
             while not terminated:
+                time.sleep(20)
                 actions = self.agent.select_action(np.array(obs))
                 # action = np.clip(action, 1, 32)
                 params = [self.actions_to_params[a] for a in actions]
@@ -236,16 +240,26 @@ class BDQTrainer(AbstractTrainer):
                     self.agent.train(replay_buffer=self.replay_buffer, batch_size=self.batch_size)
 
                 episode_reward += reward
-                if terminated:
+
+            if terminated:
+                if (episode+1) < max_episodes:
                     obs = self.env.reset(options={'launch_job': True})[0]
                     obs = np.asarray(a=obs, dtype=numpy.float64)
-                    print("Episode reward: {}", episode_reward)
-                    episode_rewards.append(episode_reward)
+
+                print("Episode reward: {}", episode_reward)
+                episode_rewards.append(episode_reward)
+
+            # if terminated:
+            #     obs = self.env.reset(options={'launch_job': True})[0]
+            #     obs = np.asarray(a=obs, dtype=numpy.float64)
+            #     print("Episode reward: {}", episode_reward)
+            #     episode_rewards.append(episode_reward)
 
         self.training_flag = False
         self.agent.save_checkpoint("influx_gym_env")
         self.env.render(mode="graph")
         self.training_flag = False
+        print("BDQTrainer.train(): THREAD EXITING")
         return episode_rewards
 
     def evaluate(self):
@@ -316,7 +330,7 @@ class DDPGTrainer(AbstractTrainer):
             self.replay_buffer.add(obs, action, next_obs, reward, terminated)
         print("Finished Warming Buffer: size=", self.replay_buffer.size)
 
-    def train(self, max_episodes=1, batch_size=100, launch_job=False):
+    def train(self, max_episodes=2, batch_size=100, launch_job=False):
         self.training_flag = True
         episode_rewards = []
         lj = launch_job
@@ -344,11 +358,14 @@ class DDPGTrainer(AbstractTrainer):
                         self.agent.train(replay_buffer=self.replay_buffer, batch_size=batch_size)
 
                 episode_reward += reward
-                if terminated:
+
+            if terminated:
+                if (episode+1) < max_episodes:
                     obs = self.env.reset(options={'launch_job': True})[0]
                     obs = np.asarray(a=obs, dtype=numpy.float64)
-                    print("Episode reward: {}", episode_reward)
-                    episode_rewards.append(episode_reward)
+
+                print("Episode reward: {}", episode_reward)
+                episode_rewards.append(episode_reward)
 
         self.training_flag = False
         self.agent.save_checkpoint("influx_gym_env")

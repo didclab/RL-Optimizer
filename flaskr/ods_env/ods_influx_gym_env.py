@@ -158,11 +158,11 @@ class InfluxEnv(gym.Env):
     Should only be called if there was a termination.
     """
 
-    def reset(self, seed=None, options={'launch_job': False}):
+    def reset(self, seed=None, options={'launch_job': False}, optimizer="DDPG"):
         if options['launch_job']:
             first_meta_data = oh.query_job_batch_obj(self.job_id)
             # print("Launching job with id=", first_meta_data['jobId'])
-            oh.submit_transfer_request(first_meta_data, optimizer="DDPG")
+            oh.submit_transfer_request(first_meta_data, optimizer=optimizer)
             # Here I would want to compute the transfers difficulty which we could measure
             time.sleep(10)
 
