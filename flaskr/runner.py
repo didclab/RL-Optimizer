@@ -194,7 +194,7 @@ class BDQTrainer(AbstractTrainer):
 
         print("Finished Warming Buffer: size=", self.replay_buffer.size)
 
-    def train(self, max_episodes=3, launch_job=False):
+    def train(self, max_episodes=300, launch_job=False):
         self.training_flag = True
 
         episode_rewards = []
@@ -217,7 +217,7 @@ class BDQTrainer(AbstractTrainer):
 
             print("BDQTrainer.train(): starting episode", episode+1)
             while not terminated:
-                time.sleep(20)
+                time.sleep(5)
                 actions = self.agent.select_action(np.array(obs))
                 # action = np.clip(action, 1, 32)
                 params = [self.actions_to_params[a] for a in actions]
