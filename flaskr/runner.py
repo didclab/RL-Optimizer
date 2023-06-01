@@ -87,9 +87,10 @@ def convert_to_action(par, params_to_actions) -> int:
 
     par = int(par)
     if par in params_to_actions:
-        return params_to_actions[par]
+        # return params_to_actions[par]
+        return params_to_actions[min(2, par)]
     else:
-        return int(np.round(np.log2(par)))
+        return min(2, int(np.round(np.log2(par))))
 
 
 def load_clean_norm_dataset(path: str) -> pandas.DataFrame:
@@ -131,7 +132,7 @@ class BDQTrainer(AbstractTrainer):
         state_dim = self.env.observation_space.shape[0]
         # 1, 2, 4, 8, 16, 32 = Discrete(6)
         # 2, 4, 8, 16, 32 = Discrete(5)
-        self.action_space = gymnasium.spaces.Discrete(5)
+        self.action_space = gymnasium.spaces.Discrete(3)
         action_dim = self.action_space.n
         self.branches = 2
         
@@ -149,7 +150,8 @@ class BDQTrainer(AbstractTrainer):
         self.actions_to_params = list(self.params_to_actions.keys())
 
         self.agent = bdq_agents.BDQAgent(
-            state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2
+            state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2,
+            decay=0.97724
         )
 
         self.replay_buffer = ReplayBufferBDQ(state_dimension=state_dim, action_dimension=self.branches)

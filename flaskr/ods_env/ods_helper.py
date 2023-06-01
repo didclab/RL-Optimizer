@@ -171,8 +171,8 @@ def transform_batch_info_json_to_transfer_request(batch_info_json):
         # look up the stepName pojo in job params
         entityInfo = str(jobParameters[step_name])
         comma_separated = entityInfo.split(",")
-        file_id = comma_separated[0].split("id=")[1].strip()
-        path = comma_separated[1].split("path=")[1].strip()
+        file_id = comma_separated[0].split("id=")[1].strip()[1:]
+        path = comma_separated[1].split("path=")[1].strip()[1:]
         size = comma_separated[2].split("size=")[1].strip()
         chunkSize = comma_separated[3].split("chunkSize=")[1].strip()
         chunkSize = chunkSize[:-1].strip()
