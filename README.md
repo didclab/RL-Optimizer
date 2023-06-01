@@ -3,6 +3,12 @@
 ## Setup
 Install: ``pip3 install -r requirements.txt``  
 Run : ``./boot.sh``
+How to run everything for training:
+1. First we need a config.ini so the optimizer can query InfluxDB.
+   2. Create a section called ```[influx2]``` pass in `url=http://influxdb.onedatashare.org/` org=`OneDataShare`, token and timeout.
+3. MONITORING_SERVICE_IP: This is only useable if the Transfer-Service is running with cockroachDB as the Repository. 
+4. TRANSFER_SCHEDULER_IP: enables the env to launch another job directly through the scheduler
+5. TRANSFER_SERVICE_URL: Is the publically reachable IP of the Transfer-Service, if on the same machine should be localhost. This is needed if your TS is using HSQL
 
 ## How to use it?
 The environment for BO and VDA2C, required is the key to access your influxDB deployment.
@@ -41,4 +47,4 @@ There are three HTTP API requests you can submit to this flask server:
 ## References
 - https://github.com/ikostrikov/pytorch-a2c-ppo-acktr-gail
 ikostriov provided a blueprint like repository on how to build clear RL models in a modular way.
-- https://arxiv.org/abs/1712.02944 The transfer-service we used to optimize is from this project (OneDataShare). 
+- https://arxiv.org/abs/1712.02944 The transfer-service we used to optimize is from this project (OneDataShare).
