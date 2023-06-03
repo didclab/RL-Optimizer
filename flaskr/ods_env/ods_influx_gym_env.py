@@ -63,6 +63,8 @@ class InfluxEnv(gym.Env):
 
         self.drop_in = 0
         self.past_utility = 0
+
+        self.cached_action = None
         print("Finished constructing the Influx Gym Env")
 
     """
@@ -75,30 +77,45 @@ class InfluxEnv(gym.Env):
              info: Currently None and not necessary I believe.
     """
 
-    def step(self, action, reward_type=None):
+    def step(self, action: list, reward_type=None):
         print("Step: action:", action)
 
-        self.space_df = self.influx_client.query_space("-10s")
-        self.space_df.drop_duplicates(inplace=True)
-        self.space_df.dropna(inplace=True)
-        terminated = False
+        # attempt to make step synchronous to action
+        action_not_applied = True
+        last_row = None
+        while action_not_applied:
+            self.space_df = self.influx_client.query_space("-10s")
+            self.space_df.drop_duplicates(inplace=True)
+            self.space_df.dropna(inplace=True)
+
+            last_row = self.space_df.tail(n=1)
+            if self.cached_action is None:
+                action_not_applied = False
+            elif int(last_row['concurrency']) == self.cached_action[0] and \
+                    int(last_row['parallelism']) == self.cached_action[1]:
+                action_not_applied = False
+            else:
+                time.sleep(10)
 
         # Need to loop while we have not gotten the next observation of the agents.
         print(self.space_df[['read_throughput', "write_throughput"]])
-        last_row = self.space_df.tail(n=1)
+
         observation = last_row[self.data_columns]
         diff_drop_in = last_row['dropin'].iloc[-1] - self.drop_in
         self.job_id = last_row['jobId']
 
         # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
+        # terminated = False
         terminated, meta = oh.query_if_job_done(self.job_id)
         if terminated:
             print("JobId: ", self.job_id, " job is done")
-        if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
-            1] > self.create_opt_request.max_parallelism:
+
+        if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency \
+                or action[1] > self.create_opt_request.max_parallelism:
             reward = -10000000
 
         else:
+            self.cached_action = action
             if int(last_row['concurrency']) != action[0] or int(last_row['parallelism']) != action[1]:
                 oh.send_application_params_tuple(
                     transfer_node_name=self.create_opt_request.node_id,
@@ -159,6 +176,7 @@ class InfluxEnv(gym.Env):
     """
 
     def reset(self, seed=None, options={'launch_job': False}, optimizer="DDPG"):
+        self.cached_action = None
         if options['launch_job']:
             first_meta_data = oh.query_job_batch_obj(self.job_id)
             # print("Launching job with id=", first_meta_data['jobId'])
