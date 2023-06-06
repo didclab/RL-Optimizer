@@ -61,7 +61,7 @@ class JacobReward(AbstractReward):
 class ArslanReward(AbstractReward):
     class Params(AbstractReward.AbstractParams):
         def __init__(self, penalty, throughput, past_utility, concurrency, parallelism, K=1.0072, b=0.02,
-                     pos_rew=1., neg_rew=-1., pos_thresh=100, neg_thresh=-100):
+                     pos_rew=1., neg_rew=-1., pos_thresh=100, neg_thresh=-100, bwidth=1.):
             # super().__init__()
             self.penalty = penalty
             self.throughput = throughput
@@ -73,6 +73,8 @@ class ArslanReward(AbstractReward):
             self.pos_thresh = pos_thresh
             self.neg_rew = neg_rew
             self.neg_thresh = neg_thresh
+
+            self.s = 1/bwidth
 
             self.total_threads = parallelism * concurrency
 
@@ -99,8 +101,8 @@ class ArslanReward(AbstractReward):
     @staticmethod
     def calculate(params: Params):
         # compute current utility
-        utility = params.throughput / np.power(params.K, params.total_threads)
-        utility -= (params.B * params.throughput * params.penalty)
+        utility = (params.s * params.throughput) / np.power(params.K, params.total_threads)
+        utility -= (params.B * params.throughput * params.penalty * params.s)
 
         diff = utility - params.past_u
         reward = 0.

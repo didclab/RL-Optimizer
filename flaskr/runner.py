@@ -97,7 +97,10 @@ def load_clean_norm_dataset(path: str) -> pandas.DataFrame:
     df = pandas.read_csv(path)
 
     df_pivot = pandas.pivot_table(df, index='_time', columns='_field', values='_value', aggfunc=np.sum)
-    df_pivot = df_pivot.drop(['_field', 'string', 'true'], axis=1)
+    try:
+        df_pivot = df_pivot.drop(['_field', 'string', 'true'], axis=1)
+    except:
+        pass
     df_pivot.columns.rename(None, inplace=True)
 
     for c in df_pivot.columns:

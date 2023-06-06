@@ -95,7 +95,14 @@ class InfluxEnv(gym.Env):
                     int(last_row['parallelism']) == self.cached_action[1]:
                 action_not_applied = False
             else:
-                time.sleep(10)
+                time.sleep(5)
+
+            # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
+            # terminated = False
+            terminated, meta = oh.query_if_job_done(self.job_id)
+            if terminated:
+                print("JobId: ", self.job_id, " job is done")
+                action_not_applied = False
 
         # Need to loop while we have not gotten the next observation of the agents.
         print(self.space_df[['read_throughput', "write_throughput"]])
@@ -106,9 +113,9 @@ class InfluxEnv(gym.Env):
 
         # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
         # terminated = False
-        terminated, meta = oh.query_if_job_done(self.job_id)
-        if terminated:
-            print("JobId: ", self.job_id, " job is done")
+        # terminated, meta = oh.query_if_job_done(self.job_id)
+        # if terminated:
+        #     print("JobId: ", self.job_id, " job is done")
 
         if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency \
                 or action[1] > self.create_opt_request.max_parallelism:
@@ -128,7 +135,8 @@ class InfluxEnv(gym.Env):
                     throughput=env_utils.smallest_throughput_rtt(last_row=last_row)[0],
                     past_utility=self.past_utility,
                     concurrency=last_row['concurrency'].iloc[-1],
-                    parallelism=last_row['parallelism'].iloc[-1]
+                    parallelism=last_row['parallelism'].iloc[-1],
+                    bwidth=0.1
                 )
 
                 reward, self.past_utility = ArslanReward.calculate(reward_params)
