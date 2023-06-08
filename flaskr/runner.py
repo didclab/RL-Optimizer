@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import os
 import time
+from torch.utils.tensorboard import SummaryWriter
 
 from .ods_env import ods_influx_gym_env
 from .ods_env.ods_rewards import ArslanReward
@@ -21,6 +22,9 @@ from .ods_env.env_utils import smallest_throughput_rtt
 
 from abc import ABC, abstractmethod
 
+enable_tensorboard = os.getenv("ENABLE_TENSORBOARD", default='False').lower() in ('true', '1', 't')
+if enable_tensorboard:
+    writer = SummaryWriter()
 
 class AbstractTrainer(ABC):
     def warm_buffer(self):
@@ -154,7 +158,7 @@ class BDQTrainer(AbstractTrainer):
 
         self.agent = bdq_agents.BDQAgent(
             state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2,
-            decay=0.97724
+            decay=0.992
         )
 
         self.replay_buffer = ReplayBufferBDQ(state_dimension=state_dim, action_dimension=self.branches)
@@ -165,6 +169,11 @@ class BDQTrainer(AbstractTrainer):
         self.warm_buffer()
         self.save_file_name = f"BDQ_{'influx_gym_env'}"
         self.training_flag = False
+
+        if enable_tensorboard:
+            print("[INFO] Tensorboard Enabled")
+        else:
+            print("[INFO] Tensorboard Disabled")
 
     def warm_buffer(self):
         df = fetch_df(self.env, self.obs_cols)
@@ -186,7 +195,7 @@ class BDQTrainer(AbstractTrainer):
             next_row = df.iloc[i + 1]
             next_obs = next_row[self.obs_cols]
             
-            reward = ArslanReward.compare(current_row['utility'], next_row['utility'])
+            reward = ArslanReward.compare(current_row['utility'], next_row['utility'], pos_rew=300, neg_rew=-600)
             terminated = False
 
             norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
@@ -199,7 +208,7 @@ class BDQTrainer(AbstractTrainer):
 
         print("Finished Warming Buffer: size=", self.replay_buffer.size)
 
-    def train(self, max_episodes=300, launch_job=False):
+    def train(self, max_episodes=1000, launch_job=False):
         self.training_flag = True
 
         episode_rewards = []
@@ -221,6 +230,9 @@ class BDQTrainer(AbstractTrainer):
             terminated = False
 
             print("BDQTrainer.train(): starting episode", episode+1)
+
+            if enable_tensorboard:
+                start_stamp = time.time()
             while not terminated:
                 time.sleep(5)
                 actions = self.agent.select_action(np.array(obs))
@@ -247,6 +259,11 @@ class BDQTrainer(AbstractTrainer):
                 episode_reward += reward
 
             if terminated:
+                if enable_tensorboard:
+                    time_elapsed = time.time() - start_stamp
+                    writer.add_scalar("Train/ep_reward", episode_reward, episode)
+                    writer.add_scalar("Train/job_time", time_elapsed, episode)
+                    
                 if (episode+1) < max_episodes:
                     obs = self.env.reset(options={'launch_job': True})[0]
                     obs = np.asarray(a=obs, dtype=numpy.float64)
@@ -254,17 +271,15 @@ class BDQTrainer(AbstractTrainer):
                 print("Episode reward: {}", episode_reward)
                 episode_rewards.append(episode_reward)
 
-            # if terminated:
-            #     obs = self.env.reset(options={'launch_job': True})[0]
-            #     obs = np.asarray(a=obs, dtype=numpy.float64)
-            #     print("Episode reward: {}", episode_reward)
-            #     episode_rewards.append(episode_reward)
-
         self.training_flag = False
         self.agent.save_checkpoint("influx_gym_env")
         self.env.render(mode="graph")
         self.training_flag = False
         print("BDQTrainer.train(): THREAD EXITING")
+
+        if enable_tensorboard:
+            writer.flush()
+            writer.close()
         return episode_rewards
 
     def evaluate(self):

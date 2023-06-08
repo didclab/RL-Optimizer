@@ -136,7 +136,9 @@ class InfluxEnv(gym.Env):
                     past_utility=self.past_utility,
                     concurrency=last_row['concurrency'].iloc[-1],
                     parallelism=last_row['parallelism'].iloc[-1],
-                    bwidth=0.1
+                    bwidth=0.1,
+                    pos_thresh=300,
+                    neg_thresh=-600
                 )
 
                 reward, self.past_utility = ArslanReward.calculate(reward_params)
@@ -185,6 +187,7 @@ class InfluxEnv(gym.Env):
 
     def reset(self, seed=None, options={'launch_job': False}, optimizer="DDPG"):
         self.cached_action = None
+        self.past_utility = self.past_utility / 4
         if options['launch_job']:
             first_meta_data = oh.query_job_batch_obj(self.job_id)
             # print("Launching job with id=", first_meta_data['jobId'])
