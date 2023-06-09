@@ -111,12 +111,6 @@ class InfluxEnv(gym.Env):
         diff_drop_in = last_row['dropin'].iloc[-1] - self.drop_in
         self.job_id = last_row['jobId']
 
-        # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
-        # terminated = False
-        # terminated, meta = oh.query_if_job_done(self.job_id)
-        # if terminated:
-        #     print("JobId: ", self.job_id, " job is done")
-
         if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency \
                 or action[1] > self.create_opt_request.max_parallelism:
             reward = -10000000
@@ -189,7 +183,11 @@ class InfluxEnv(gym.Env):
         self.cached_action = None
         self.past_utility = self.past_utility / 4
         if options['launch_job']:
-            first_meta_data = oh.query_job_batch_obj(self.job_id)
+            if oh.hsql_enabled:
+                first_meta_data = oh.query_batch_job_direct(self.job_id)
+            else:
+                first_meta_data = oh.query_job_batch_obj(self.job_id)
+            
             # print("Launching job with id=", first_meta_data['jobId'])
             oh.submit_transfer_request(first_meta_data, optimizer=optimizer)
             # Here I would want to compute the transfers difficulty which we could measure
