@@ -317,8 +317,8 @@ class DDPGTrainer(AbstractTrainer):
             reward = JacobReward.calculate(reward_params)
             current_job_id = current_row['jobId']
             terminated = False
-            if next_obs['jobId'] != current_job_id:
-                terminated = True
+            # if next_obs['jobId'] != current_job_id:
+            #     terminated = True
 
             self.replay_buffer.add(obs, action, next_obs, reward, terminated)
 
