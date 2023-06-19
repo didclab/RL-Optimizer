@@ -154,7 +154,7 @@ class InfluxEnv(gym.Env):
             if last_row['concurrency'].iloc[-1] == action[0] and last_row['parallelism'].iloc[-1] == action[1]:
                 break
             else:
-                time.sleep(.5)
+                time.sleep(1)
 
         print("Step reward: ", reward)
         self.past_rewards.append(reward)
