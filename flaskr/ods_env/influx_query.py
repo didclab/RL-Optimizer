@@ -9,7 +9,7 @@ from influxdb_client import InfluxDBClient
 class InfluxData:
     # The transfer_node_name should probably come in during the create request
     def __init__(self, bucket_name="OdsTransferNodes", transfer_node_name="jgoldverg@gmail.com-mac", file_name=None, time_window="-2m"):
-        self.client = InfluxDBClient.from_config_file(
+        self.client = InfluxDBClient(
             url=os.getenv("INFLUXDB_URL"),
             token=os.getenv("INFLUXDB_TOKEN"),
             org=os.getenv("INFLUXDB_ORG")
