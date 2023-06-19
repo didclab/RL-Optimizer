@@ -61,7 +61,7 @@ class InfluxEnv(gym.Env):
         self.render_mode = render_mode
         self.past_job_ids = []
 
-        self.drop_in = 0
+        self.rtt = 0
         self.past_utility = 0
         print("Finished constructing the Influx Gym Env")
 
@@ -78,7 +78,7 @@ class InfluxEnv(gym.Env):
     def step(self, action, reward_type=None):
         print("Step: action:", action)
 
-        self.space_df = self.influx_client.query_space("-10s")
+        self.space_df = self.influx_client.query_space("-60s")
         self.space_df.drop_duplicates(inplace=True)
         self.space_df.dropna(inplace=True)
         terminated = False
@@ -87,27 +87,25 @@ class InfluxEnv(gym.Env):
         print(self.space_df[['read_throughput', "write_throughput"]])
         last_row = self.space_df.tail(n=1)
         observation = last_row[self.data_columns]
-        diff_drop_in = last_row['dropin'].iloc[-1] - self.drop_in
+        delta_rtt = self.space_df['rtt'].mean() - self.rtt
         self.job_id = last_row['jobId']
 
         # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
         terminated, meta = oh.query_if_job_done(self.job_id)
         if terminated:
             print("JobId: ", self.job_id, " job is done")
-        if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
-            1] > self.create_opt_request.max_parallelism:
-            reward = -10000000
 
+        if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[1] > self.create_opt_request.max_parallelism:
+            reward = -10000000
         else:
             if int(last_row['concurrency']) != action[0] or int(last_row['parallelism']) != action[1]:
                 oh.send_application_params_tuple(
                     transfer_node_name=self.create_opt_request.node_id,
                     cc=action[0], p=action[1], pp=1, chunkSize=0
                 )
-
             if reward_type == 'arslan':
                 reward_params = ArslanReward.Params(
-                    penalty=diff_drop_in,
+                    penalty=delta_rtt,
                     throughput=env_utils.smallest_throughput_rtt(last_row=last_row)[0],
                     past_utility=self.past_utility,
                     concurrency=last_row['concurrency'].iloc[-1],
@@ -115,7 +113,7 @@ class InfluxEnv(gym.Env):
                 )
 
                 reward, self.past_utility = ArslanReward.calculate(reward_params)
-                self.drop_in += diff_drop_in
+                self.rtt = last_row['rtt'].iloc[-1]
                 self.past_actions.append(action)
 
             elif reward_type == 'default':
@@ -145,6 +143,18 @@ class InfluxEnv(gym.Env):
 
                 reward = JacobReward.calculate(reward_params)
                 print("Reward=", reward)
+
+        #Block until the action takes effect
+        while True:
+            space_df = self.influx_client.query_space("-30s")
+            terminated = False
+            last_row = space_df.tail(n=1)
+            #last_row['concurrency'].iloc[-1],
+                    #parallelism=last_row['parallelism'].iloc[-1]
+            if last_row['concurrency'].iloc[-1] == action[0] and last_row['parallelism'].iloc[-1] == action[1]:
+                break
+            else:
+                time.sleep(.5)
 
         print("Step reward: ", reward)
         self.past_rewards.append(reward)
