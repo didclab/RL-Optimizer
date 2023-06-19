@@ -290,7 +290,7 @@ class DDPGTrainer(AbstractTrainer):
     def warm_buffer(self):
         df = fetch_df(self.env, self.obs_cols)
         df.assign(diff_dropin=df['source_rtt'].diff(periods=1).fillna(0))
-        df.assign(diff_dropin=df['dest_rtt'].diff(periods=1).fillna(0))
+        df.assign(diff_dropin=df['destination_rtt'].diff(periods=1).fillna(0))
         # initialize stats here
         means = self.stats.loc['mean']
         stds = self.stats.loc['std']
