@@ -175,6 +175,7 @@ def transform_batch_info_json_to_transfer_request(batch_info_json):
         path = comma_separated[1].split("path=")[1].strip()[1:]
         size = comma_separated[2].split("size=")[1].strip()
         chunkSize = comma_separated[3].split("chunkSize=")[1].strip()
+        chunkSize = chunkSize[:-1].strip()
         itemInfo = ItemInfo(chunk_size=int(chunkSize),
                             path=path, id=file_id, size=int(size))
         info_list.append(itemInfo)
