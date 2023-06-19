@@ -177,12 +177,12 @@ class InfluxEnv(gym.Env):
                 first_meta_data = oh.query_job_batch_obj(self.job_id)
             print("InfluxEnv: relaunching job: ", first_meta_data['jobParameters'])
             oh.submit_transfer_request(first_meta_data, optimizer="DDPG")
+            self.job_id += 1
             # time.sleep(10)
 
         if len(self.past_actions) > 0 and len(self.past_rewards) > 0:
-            print("Past actions: ", self.past_actions)
-            print("Past Rewards: ", self.past_rewards)
             print("Avg reward: ", np.mean(self.past_rewards))
+            print("Actions to Count: ", np.unique(self.past_actions, return_counts=True))
 
         self.past_actions.clear()
         self.past_rewards.clear()
