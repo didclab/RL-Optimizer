@@ -297,7 +297,7 @@ class DDPGTrainer(AbstractTrainer):
         df.dropna(inplace=True)
 
         for i in range(df.shape[0] - 1):
-            current_row = df.iloc[i]
+            current_row = df.tail(n=1)
 
             obs = current_row[self.obs_cols]
             action = obs[['parallelism', 'concurrency']]
