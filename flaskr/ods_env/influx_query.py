@@ -1,3 +1,5 @@
+import os
+
 import pandas as pd
 from pandas import read_csv
 import time
@@ -7,7 +9,11 @@ from influxdb_client import InfluxDBClient
 class InfluxData:
     # The transfer_node_name should probably come in during the create request
     def __init__(self, bucket_name="OdsTransferNodes", transfer_node_name="jgoldverg@gmail.com-mac", file_name=None, time_window="-2m"):
-        self.client = InfluxDBClient.from_config_file("config.ini")
+        self.client = InfluxDBClient.from_config_file(
+            url=os.getenv("INFLUXDB_URL"),
+            token=os.getenv("INFLUXDB_TOKEN"),
+            org=os.getenv("INFLUXDB_ORG")
+        )
         self.space_keys = [
             'active_core_count, bytesDownloaded, bytesUploaded, chunkSize, concurrency, parallelism, pipelining, destination_rtt, source_rtt, read_throughput, write_throughput, ']
         self.query_api = self.client.query_api()
