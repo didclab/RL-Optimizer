@@ -341,6 +341,12 @@ class DDPGTrainer(AbstractTrainer):
                 new_obs, reward, terminated, truncated, info = self.env.step(action, reward_type='jacob')
                 ts += 1
                 self.replay_buffer.add(obs, action, new_obs, reward, terminated)
+                print("Obs: ", obs)
+                print("Action:", action)
+                print("Terminated: ", terminated)
+                print("Reward: ", reward)
+                print("Next Obs: ", new_obs)
+
                 obs = new_obs
                 if self.replay_buffer.size > batch_size:
                     if ts % 10 == 0:
