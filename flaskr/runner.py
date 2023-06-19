@@ -6,7 +6,8 @@ import numpy as np
 import os
 
 from .ods_env import ods_influx_gym_env
-from .ods_env.ods_rewards import ArslanReward
+from .ods_env.ods_rewards import ArslanReward, JacobReward
+from .ods_env import env_utils
 
 from flaskr import classes
 
@@ -288,21 +289,32 @@ class DDPGTrainer(AbstractTrainer):
 
 
     def warm_buffer(self):
-        df = fetch_df(self.env, self.obs_cols)
-        df.assign(diff_dropin=df['source_rtt'].diff(periods=1).fillna(0))
-        df.assign(diff_dropin=df['destination_rtt'].diff(periods=1).fillna(0))
-        # initialize stats here
+        print("Starting to warm the DDPG buffer")
 
-        # create utility column inplace
-        df.assign(utility=lambda x: ArslanReward.construct(x, penalty='diff_dropin'))
+        df = self.env.influx_client.query_space(time_window="-1d")
+        df = df[self.obs_cols]
+        df.drop_duplicates(inplace=True)
+        df.dropna(inplace=True)
+
         for i in range(df.shape[0] - 1):
             current_row = df.iloc[i]
-            obs = current_row[self.obs_cols]
 
+            obs = current_row[self.obs_cols]
             action = obs[['parallelism', 'concurrency']]
             next_obs = df.iloc[i + 1]
-            reward = ArslanReward.compare(current_row['utility'], next_obs['utility'])
-
+            thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=current_row)
+            reward_params = JacobReward.Params(
+                throughput=thrpt,
+                rtt=rtt,
+                c=current_row['concurrency'].iloc[-1],
+                max_cc=self.create_opt_request.max_concurrency,
+                p=current_row['parallelism'].iloc[-1],
+                max_p=self.create_opt_request.max_parallelism,
+                max_cpu_freq=current_row['cpu_frequency_max'].iloc[-1],
+                min_cpu_freq=current_row['cpu_frequency_min'].iloc[-1],
+                cpu_freq=current_row['cpu_frequency_current'].iloc[-1]
+            )
+            reward = JacobReward.calculate(reward_params)
             current_job_id = current_row['jobId']
             terminated = False
             if next_obs['jobId'] != current_job_id:
@@ -310,17 +322,14 @@ class DDPGTrainer(AbstractTrainer):
 
             self.replay_buffer.add(obs, action, next_obs, reward, terminated)
 
-    def train(self, max_episodes=1, batch_size=100, launch_job=False):
+    def train(self, max_episodes=1000, batch_size=100):
         self.training_flag = True
         episode_rewards = []
-        lj = launch_job
-        options = {'launch_job': lj}
+        options = {'launch_job': False}
         print("Before the first env reset()")
         obs = self.env.reset(options=options)[0]  # gurantees job is running
         print("State in train(): ", obs, "\t", "type: ", type(obs))
         obs = np.asarray(a=obs, dtype=numpy.float64)
-        lj = False  # previous line launched a job
-        # episode = 1 transfer job
         ts = 0
         for episode in range(max_episodes):
             episode_reward = 0
@@ -329,7 +338,7 @@ class DDPGTrainer(AbstractTrainer):
                 action = (self.agent.select_action(np.array(obs)))
                 action = np.rint(action)
                 action = np.clip(action, 1, 32)
-                new_obs, reward, terminated, truncated, info = self.env.step(action)
+                new_obs, reward, terminated, truncated, info = self.env.step(action, reward_type='jacob')
                 ts += 1
                 self.replay_buffer.add(obs, action, new_obs, reward, terminated)
                 obs = new_obs
@@ -344,9 +353,10 @@ class DDPGTrainer(AbstractTrainer):
                     print("Episode reward: {}", episode_reward)
                     episode_rewards.append(episode_reward)
 
-        self.training_flag = False
-        self.agent.save_checkpoint("influx_gym_env")
-        self.env.render(mode="graph")
+            if episode % 10 == 0:
+                self.agent.save_checkpoint("ddpg_influx_gym")
+                print("Episode ", episode, " has average reward of: ", np.mean(episode_rewards))
+
         self.training_flag = False
         return episode_rewards
 

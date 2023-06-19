@@ -33,7 +33,7 @@ pd.set_option('display.precision', 5)
 
 class InfluxEnv(gym.Env):
 
-    def __init__(self, create_opt_req, reward_function=lambda rtt, thrpt: (rtt * thrpt),
+    def __init__(self, create_opt_req: CreateOptimizerRequest,
                  action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns=[]):
         super(InfluxEnv, self).__init__()
         self.create_opt_request = create_opt_req
@@ -48,21 +48,17 @@ class InfluxEnv(gym.Env):
             self.data_columns = observation_columns
         else:
             self.data_columns = self.space_df.columns.values
-        self.reward_function = reward_function  # this function is then used to evaluate the obs space of the last entry
         if action_space_discrete:
             self.action_space = spaces.Discrete(3)  # drop stay increase
         else:
             self.action_space = spaces.Box(low=1, high=32, shape=(2,))  # for now cc, p only
-        self.action_space_max = 32 * 2
         # So this is probably not defined totally properly as I assume dimensions are 0-infinity
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),))
         self.past_rewards = []
         self.past_actions = []
         self.render_mode = render_mode
-        self.past_job_ids = []
 
         self.drop_in = 0
-        self.rtt = 0.0
         self.past_utility = 0
         print("Finished constructing the Influx Gym Env")
 
@@ -88,20 +84,18 @@ class InfluxEnv(gym.Env):
         observation = last_row[self.data_columns]
         diff_drop_in = last_row['dropin'].iloc[-1] - self.drop_in
 
-        source_rtt = last_row['source_rtt'].iloc[-1]
-        dest_rtt = last_row['destination_rtt'].iloc[-1]
-        delta_rtt = (source_rtt + dest_rtt)/2
 
         self.job_id = last_row['jobId']
 
         # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
         if self.create_opt_request.db_type == "hsql":
-            terminated,meta = oh.query_if_job_done_direct(self.job_id)
+            terminated, meta = oh.query_if_job_done_direct(self.job_id)
         else:
             terminated, meta = oh.query_if_job_done(self.job_id)
 
         if terminated:
             print("JobId: ", self.job_id, " job is done")
+
         if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
             1] > self.create_opt_request.max_parallelism:
             reward = -10000000
@@ -115,7 +109,7 @@ class InfluxEnv(gym.Env):
 
             if reward_type == 'arslan':
                 reward_params = ArslanReward.Params(
-                    penalty=delta_rtt,
+                    penalty=diff_drop_in,
                     throughput=env_utils.smallest_throughput_rtt(last_row=last_row),
                     past_utility=self.past_utility,
                     concurrency=last_row['concurrency'].iloc[-1],
@@ -124,7 +118,6 @@ class InfluxEnv(gym.Env):
 
                 reward, self.past_utility = ArslanReward.calculate(reward_params)
                 self.drop_in += diff_drop_in
-                self.rtt += delta_rtt
                 self.past_actions.append(action)
 
             elif reward_type == 'default':
@@ -138,18 +131,19 @@ class InfluxEnv(gym.Env):
                 )
                 reward = DefaultReward.calculate(reward_params)
 
-            else:
+            elif reward_type == 'jacob':
                 thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
                 self.past_actions.append(action)
-                totalBytes = int(meta['jobParameters']['jobSize'])
-
                 reward_params = JacobReward.Params(
                     throughput=thrpt,
                     rtt=rtt,
-                    total_bytes=totalBytes,
-                    last_concurrency=last_row['concurrency'].iloc[-1],
-                    last_parallelism=last_row['parallelism'].iloc[-1],
-                    action_space_max=self.action_space_max
+                    c=last_row['concurrency'].iloc[-1],
+                    max_cc=self.create_opt_request.max_concurrency,
+                    p=last_row['parallelism'].iloc[-1],
+                    max_p=self.create_opt_request.max_parallelism,
+                    max_cpu_freq=last_row['cpu_frequency_max'].iloc[-1],
+                    min_cpu_freq=last_row['cpu_frequency_min'].iloc[-1],
+                    cpu_freq=last_row['cpu_frequency_current'].iloc[-1]
                 )
 
                 reward = JacobReward.calculate(reward_params)
@@ -166,7 +160,6 @@ class InfluxEnv(gym.Env):
                 break
             else:
                 time.sleep(1)
-        # reward = self.reward_function(rtt, thrpt)
         # this reward is of the last influx column which is mapped to that
         # observation so this is the past time steps not the current actions rewards
         return observation, reward, terminated, None, None

@@ -1,3 +1,4 @@
+import math
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -36,26 +37,38 @@ class DefaultReward(AbstractReward):
 
 class JacobReward(AbstractReward):
     class Params(AbstractReward.AbstractParams):
-        def __init__(self, throughput, rtt, total_bytes, last_concurrency, last_parallelism, action_space_max):
+        def __init__(self, throughput, rtt, max_cpu_freq, min_cpu_freq,cpu_freq, c, p, max_cc, max_p):
             # super().__init__()
             self.throughput = throughput
             self.rtt = rtt
-            self.total_bytes = total_bytes
-            self.action_space_max = action_space_max
-            # why add and not multiply?
-            self.last_action = last_parallelism + last_concurrency
+            self.hyper_rtt = .1
+            self.cc = c
+            self.max_cc = max_cc
+            self.hyper_cc = .01
+            self.p = p
+            self.hyper_p = .01
+            self.max_p = max_p
+            self.cpu_freq = cpu_freq
+            self.hyper_cpu_freq = .001
+            self.min_cpu_freq = min_cpu_freq
+            self.max_cpu_freq = max_cpu_freq
 
     @staticmethod
     def calculate(params: Params):
-        byte_ratio = ((params.throughput / 8) * params.rtt) / params.total_bytes
-        action_ratio = params.last_action / params.action_space_max
+        scaled_p = params.p / params.max_p
+        scaled_p = scaled_p * params.hyper_p
 
-        print("Byte Ratio=", byte_ratio,
-              " thrpt=", params.throughput, " * rtt=", params.rtt, " /totalBytes", params.total_bytes)
-        print("Action Ratio=", action_ratio, "last_action=", params.last_action, "/ action space max=",
-              params.action_space_max)
+        scaled_cc = params.cc / params.max_cc
+        scaled_cc = scaled_cc * params.hyper_cc
 
-        return byte_ratio / action_ratio
+        scale_cpu_freq = (params.cpu_freq - params.min_cpu_freq) / (params.max_cpu_freq - params.min_cpu_freq)
+        scale_cpu_freq = params.hyper_cpu_freq * scale_cpu_freq
+        rtt_disc = 1/(1 + params.k * math.log(params.rtt))
+        rtt_disc = rtt_disc * params.hyper_rtt
+
+        reward = params.throughput / (rtt_disc * scale_cpu_freq * scaled_cc * scaled_p)
+
+        return reward
 
 
 class ArslanReward(AbstractReward):
