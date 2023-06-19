@@ -63,8 +63,7 @@ class JacobReward(AbstractReward):
 
         scale_cpu_freq = (params.cpu_freq - params.min_cpu_freq) / (params.max_cpu_freq - params.min_cpu_freq)
         scale_cpu_freq = params.hyper_cpu_freq * scale_cpu_freq
-        rtt_disc = 1/(1 + params.k * math.log(params.rtt))
-        rtt_disc = rtt_disc * params.hyper_rtt
+        rtt_disc = 1/(1 + params.hyper_rtt * math.log(params.rtt))
 
         reward = params.throughput / (rtt_disc * scale_cpu_freq * scaled_cc * scaled_p)
 
