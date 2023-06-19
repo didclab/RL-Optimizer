@@ -155,8 +155,8 @@ class InfluxEnv(gym.Env):
             self.space_df = self.influx_client.query_space("-30s")
             self.space_df.drop_duplicates(inplace=True)
             self.space_df.dropna(inplace=True)
-            last_row = self.space_df.tail(n=1)
-            if action[0] == last_row['concurrency'].iloc[-1] and action[1] == last_row['parallelism']:
+            cur_row = self.space_df.tail(n=1)
+            if action[0] == cur_row['concurrency'].iloc[-1] and action[1] == cur_row['parallelism'].iloc[-1]:
                 break
             else:
                 time.sleep(1)
