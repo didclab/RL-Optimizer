@@ -315,7 +315,7 @@ class DDPGTrainer(AbstractTrainer):
                 cpu_freq=current_row['cpu_frequency_current'].iloc[-1]
             )
             reward = JacobReward.calculate(reward_params)
-            current_job_id = current_row['jobId']
+            # current_job_id = current_row['jobId']
             terminated = False
             # if next_obs['jobId'] != current_job_id:
             #     terminated = True
