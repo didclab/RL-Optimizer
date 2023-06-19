@@ -12,7 +12,7 @@ from flaskr import classes
 
 from .algos.ddpg import agents as ddpg_agents
 from .algos.bdq import agents as bdq_agents
-from algos.global_memory import ReplayBuffer as ReplayBufferBDQ
+from .algos.global_memory import ReplayBuffer as ReplayBufferBDQ
 
 from .algos.ddpg import memory
 from .algos.ddpg import utils
@@ -286,28 +286,31 @@ class DDPGTrainer(AbstractTrainer):
             pass
         self.training_flag = False
 
-    # Lets say we select the past 10 jobs worth of data what happens?
+
     def warm_buffer(self):
-        print("warming buffer")
-        df = self.env.influx_client.query_space(time_window="-1d")
-        df = df[self.obs_cols]
-        df.drop_duplicates(inplace=True)
-        df.dropna(inplace=True)
+        df = fetch_df(self.env, self.obs_cols)
+        df.assign(diff_dropin=df['source_rtt'].diff(periods=1).fillna(0))
+        df.assign(diff_dropin=df['dest_rtt'].diff(periods=1).fillna(0))
+        # initialize stats here
+        means = self.stats.loc['mean']
+        stds = self.stats.loc['std']
+
+        # create utility column inplace
+        df.assign(utility=lambda x: ArslanReward.construct(x, penalty='diff_dropin'))
         for i in range(df.shape[0] - 1):
             current_row = df.iloc[i]
             obs = current_row[self.obs_cols]
-            action = obs[['concurrency', 'parallelism']]
+
+            action = obs[['parallelism', 'concurrency']]
             next_obs = df.iloc[i + 1]
-            if next_obs['write_throughput'] < next_obs['read_throughput']:
-                thrpt = next_obs['write_throughput']
-                rtt = next_obs['destination_rtt']
-            else:
-                thrpt = next_obs['read_throughput']
-                rtt = next_obs['source_rtt']
-            reward = rtt * thrpt
+            reward = ArslanReward.compare(current_row['utility'], next_obs['utility'])
+
+            current_job_id = current_row['jobId']
             terminated = False
+            if next_obs['jobId'] != current_job_id:
+                terminated = True
+
             self.replay_buffer.add(obs, action, next_obs, reward, terminated)
-        print("Finished Warming Buffer: size=", self.replay_buffer.size)
 
     def train(self, max_episodes=1, batch_size=100, launch_job=False):
         self.training_flag = True

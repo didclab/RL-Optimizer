@@ -101,7 +101,7 @@ def create_optimizer():
         print(json_dict)
         create_opt = CreateOptimizerRequest(json_dict['nodeId'], json_dict['maxConcurrency'],
                                             json_dict['maxParallelism'], json_dict['maxPipelining'],
-                                            json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'], json_dict['jobId'])
+                                            json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'], json_dict['jobId'], json_dict['dbType'])
         print(create_opt.__str__())
         if 'launch_job' in json_dict:
             create_opt.set_launch_job(json_dict['launch_job'])

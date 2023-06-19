@@ -4,9 +4,9 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models import PreNet, AdvantageNet, StateNet
-# from ..abstract_agent import AbstractAgent
-from algos.abstract_agent import AbstractAgent
+from .models import PreNet, AdvantageNet, StateNet
+from ..abstract_agent import AbstractAgent
+# from algos.abstract_agent import AbstractAgent
 from copy import deepcopy
 
 

@@ -62,6 +62,7 @@ class InfluxEnv(gym.Env):
         self.past_job_ids = []
 
         self.drop_in = 0
+        self.rtt = 0.0
         self.past_utility = 0
         print("Finished constructing the Influx Gym Env")
 
@@ -77,21 +78,28 @@ class InfluxEnv(gym.Env):
 
     def step(self, action, reward_type=None):
         print("Step: action:", action)
-
-        self.space_df = self.influx_client.query_space("-10s")
+        self.space_df = self.influx_client.query_space("-60s")
         self.space_df.drop_duplicates(inplace=True)
         self.space_df.dropna(inplace=True)
-        terminated = False
 
         # Need to loop while we have not gotten the next observation of the agents.
         print(self.space_df[['read_throughput', "write_throughput"]])
         last_row = self.space_df.tail(n=1)
         observation = last_row[self.data_columns]
         diff_drop_in = last_row['dropin'].iloc[-1] - self.drop_in
+
+        source_rtt = last_row['source_rtt'].iloc[-1]
+        dest_rtt = last_row['destination_rtt'].iloc[-1]
+        delta_rtt = (source_rtt + dest_rtt)/2
+
         self.job_id = last_row['jobId']
 
         # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
-        terminated, meta = oh.query_if_job_done(self.job_id)
+        if self.create_opt_request.db_type == "hsql":
+            terminated,meta = oh.query_if_job_done_direct(self.job_id)
+        else:
+            terminated, meta = oh.query_if_job_done(self.job_id)
+
         if terminated:
             print("JobId: ", self.job_id, " job is done")
         if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
@@ -107,7 +115,7 @@ class InfluxEnv(gym.Env):
 
             if reward_type == 'arslan':
                 reward_params = ArslanReward.Params(
-                    penalty=diff_drop_in,
+                    penalty=delta_rtt,
                     throughput=env_utils.smallest_throughput_rtt(last_row=last_row),
                     past_utility=self.past_utility,
                     concurrency=last_row['concurrency'].iloc[-1],
@@ -116,6 +124,7 @@ class InfluxEnv(gym.Env):
 
                 reward, self.past_utility = ArslanReward.calculate(reward_params)
                 self.drop_in += diff_drop_in
+                self.rtt += delta_rtt
                 self.past_actions.append(action)
 
             elif reward_type == 'default':
@@ -144,10 +153,19 @@ class InfluxEnv(gym.Env):
                 )
 
                 reward = JacobReward.calculate(reward_params)
-                print("Reward=", reward)
 
         print("Step reward: ", reward)
         self.past_rewards.append(reward)
+
+        while True:
+            self.space_df = self.influx_client.query_space("-30s")
+            self.space_df.drop_duplicates(inplace=True)
+            self.space_df.dropna(inplace=True)
+            last_row = self.space_df.tail(n=1)
+            if action[0] == last_row['concurrency'].iloc[-1] and action[1] == last_row['parallelism']:
+                break
+            else:
+                time.sleep(1)
         # reward = self.reward_function(rtt, thrpt)
         # this reward is of the last influx column which is mapped to that
         # observation so this is the past time steps not the current actions rewards
@@ -160,14 +178,18 @@ class InfluxEnv(gym.Env):
 
     def reset(self, seed=None, options={'launch_job': False}):
         if options['launch_job']:
-            first_meta_data = oh.query_job_batch_obj(self.job_id)
-            # print("Launching job with id=", first_meta_data['jobId'])
+            if self.create_opt_request.db_type == "hsql":
+                first_meta_data = oh.query_batch_job_direct(self.job_id)
+            else:
+                first_meta_data = oh.query_job_batch_obj(self.job_id)
+            print("InfluxEnv: relaunching job: ", first_meta_data['jobParameters'])
             oh.submit_transfer_request(first_meta_data, optimizer="DDPG")
-            # Here I would want to compute the transfers difficulty which we could measure
             time.sleep(10)
 
         if len(self.past_actions) > 0 and len(self.past_rewards) > 0:
-            print("Average past rewards:", sum(self.past_rewards) / len(self.past_actions))
+            print("Past actions: ", self.past_actions)
+            print("Past Rewards: ", self.past_rewards)
+            print("Avg reward: ", np.mean(self.past_rewards))
 
         self.past_actions.clear()
         self.past_rewards.clear()

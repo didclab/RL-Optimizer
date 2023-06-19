@@ -205,3 +205,19 @@ def query_job_ids_direct():
     url = "{}/api/v1/job/ids".format(transfer_service_ip)
     return requests.get(url=url, headers=headers).json()
 
+def query_if_job_done_direct(jobId):
+    meta_data = query_batch_job_direct(jobId)
+    status = meta_data['status']
+    if status == COMPLETED or status == FAILED or status == ABANDONED:
+        return True, meta_data
+    else:
+        return False, meta_data
+
+
+def query_if_job_running_direct(jobId):
+    meta_data = query_batch_job_direct(jobId)
+    status = meta_data['status']
+    if status == STARTING or status == STARTED or status == RUNNING:
+        return True, meta_data
+    else:
+        return False, meta_data
