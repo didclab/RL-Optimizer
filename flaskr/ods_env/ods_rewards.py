@@ -50,7 +50,7 @@ class JacobReward(AbstractReward):
             self.hyper_p = .1
             self.max_p = max_p
             self.cpu_freq = cpu_freq
-            self.hyper_cpu_freq = .001
+            self.hyper_cpu_freq = .1
             self.min_cpu_freq = min_cpu_freq
             self.max_cpu_freq = max_cpu_freq
 
