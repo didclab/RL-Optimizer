@@ -156,6 +156,7 @@ class InfluxEnv(gym.Env):
 
             if terminated:
                 print("JobId: ", self.job_id, " job is done")
+                break
 
             if action[0] == cur_row['concurrency'].iloc[-1] and action[1] == cur_row['parallelism'].iloc[-1]:
                 break
