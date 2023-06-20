@@ -349,8 +349,7 @@ class DDPGTrainer(AbstractTrainer):
 
                 obs = new_obs
                 if self.replay_buffer.size > batch_size:
-                    if ts % 10 == 0:
-                        self.agent.train(replay_buffer=self.replay_buffer, batch_size=batch_size)
+                    self.agent.train(replay_buffer=self.replay_buffer, batch_size=batch_size)
 
                 episode_reward += reward
                 if terminated:

@@ -2,6 +2,7 @@ import math
 from abc import ABC, abstractmethod
 
 import numpy as np
+import pandas as pd
 
 
 class AbstractReward(ABC):
@@ -37,16 +38,16 @@ class DefaultReward(AbstractReward):
 
 class JacobReward(AbstractReward):
     class Params(AbstractReward.AbstractParams):
-        def __init__(self, throughput, rtt, max_cpu_freq, min_cpu_freq,cpu_freq, c, p, max_cc, max_p):
+        def __init__(self, throughput, rtt, max_cpu_freq, min_cpu_freq, cpu_freq, c, p, max_cc, max_p):
             # super().__init__()
             self.throughput = throughput
             self.rtt = rtt
-            self.hyper_rtt = .1
+            self.hyper_rtt = 1
             self.cc = c
             self.max_cc = max_cc
-            self.hyper_cc = .01
+            self.hyper_cc = .1
             self.p = p
-            self.hyper_p = .01
+            self.hyper_p = .1
             self.max_p = max_p
             self.cpu_freq = cpu_freq
             self.hyper_cpu_freq = .001
@@ -57,13 +58,20 @@ class JacobReward(AbstractReward):
     def calculate(params: Params):
         scaled_p = params.p / params.max_p
         scaled_p = scaled_p * params.hyper_p
-
+        print("Parallelism: ", "p=", params.p, " Scaled Parallelism: (p/p_max)*hyper_p=", scaled_p, "hyper_p=",
+              params.hyper_p)
         scaled_cc = params.cc / params.max_cc
         scaled_cc = scaled_cc * params.hyper_cc
+        print("Concurrency: ", "p=", params.cc, " Scaled Concurrency: (cc/cc_max)*hyper_cc=", scaled_cc, "hyper_p=",
+              params.hyper_cc)
 
         scale_cpu_freq = (params.cpu_freq - params.min_cpu_freq) / (params.max_cpu_freq - params.min_cpu_freq)
         scale_cpu_freq = params.hyper_cpu_freq * scale_cpu_freq
-        rtt_disc = 1/(1 + params.hyper_rtt * math.log(params.rtt))
+        print("Frequency: ", "cur_freq=", params.cpu_freq, " min_freq=", params.min_cpu_freq, " max_freq=",
+              params.max_cpu_freq)
+
+        rtt_disc = 1 / (1 + params.hyper_rtt * math.log(params.rtt))
+        print("RTT=", params.rtt, " Scaled RTT = 1/(1+hyper_rtt * log(rtt))=", rtt_disc)
         reward = params.throughput * (rtt_disc * scale_cpu_freq * scaled_cc * scaled_p)
         return reward
 
