@@ -87,15 +87,6 @@ class InfluxEnv(gym.Env):
 
         self.job_id = last_row['jobId']
 
-        # Here we need to use monitoring API to know when the job is formally done vs when its running very slow
-        if self.create_opt_request.db_type == "hsql":
-            terminated, meta = oh.query_if_job_done_direct(self.job_id)
-        else:
-            terminated, meta = oh.query_if_job_done(self.job_id)
-
-        if terminated:
-            print("JobId: ", self.job_id, " job is done")
-
         if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
             1] > self.create_opt_request.max_parallelism:
             reward = -10000000
@@ -156,16 +147,20 @@ class InfluxEnv(gym.Env):
             self.space_df.drop_duplicates(inplace=True)
             self.space_df.dropna(inplace=True)
             cur_row = self.space_df.tail(n=1)
-            status = cur_row['status'].iloc[-1]
             observation = last_row[self.data_columns]
-            if status == "COMPLETED" or status == "FAILED" or status == "ABANDONED":
-                terminated = True
-                break
+
+            if self.create_opt_request.db_type == "hsql":
+                terminated, meta = oh.query_if_job_done_direct(self.job_id)
+            else:
+                terminated, meta = oh.query_if_job_done(self.job_id)
+
+            if terminated:
+                print("JobId: ", self.job_id, " job is done")
 
             if action[0] == cur_row['concurrency'].iloc[-1] and action[1] == cur_row['parallelism'].iloc[-1]:
                 break
-            else:
-                time.sleep(1)
+
+            time.sleep(1)
         # this reward is of the last influx column which is mapped to that
         # observation so this is the past time steps not the current actions rewards
         return observation, reward, terminated, None, None
