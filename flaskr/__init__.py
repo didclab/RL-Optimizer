@@ -147,8 +147,8 @@ def delete_optimizer():
         delete_op = DeleteOptimizerRequest(jd['nodeId'])
         if optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.bo:
             optim_map.delete_optimizer(delete_op)
-        elif optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.ddpg:
-            optim_map.delete_optimizer(delete_op, args)
+        # elif optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.ddpg:
+        #     optim_map.delete_optimizer(delete_op, args)
         elif optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.vda2c:
             print(delete_op.__str__())
             global epsilon
