@@ -67,7 +67,8 @@ class JacobReward(AbstractReward):
 
         scale_cpu_freq = (params.cpu_freq - params.min_cpu_freq) / (params.max_cpu_freq - params.min_cpu_freq)
         scale_cpu_freq = params.hyper_cpu_freq * scale_cpu_freq
-        print("Frequency: ", "cur_freq=", params.cpu_freq, "Scaled freq=", scale_cpu_freq" min_freq=", params.min_cpu_freq, " max_freq=",
+        print("Frequency: ", "cur_freq=", params.cpu_freq, "Scaled freq=", scale_cpu_freq,
+              ", min_freq=", params.min_cpu_freq, " max_freq=",
               params.max_cpu_freq)
 
         rtt_disc = 1 / (1 + params.hyper_rtt * math.log(params.rtt))
