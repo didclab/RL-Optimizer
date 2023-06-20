@@ -156,7 +156,7 @@ class InfluxEnv(gym.Env):
             self.space_df.drop_duplicates(inplace=True)
             self.space_df.dropna(inplace=True)
             cur_row = self.space_df.tail(n=1)
-            status = cur_row
+            status = cur_row['status'].iloc[-1]
             observation = last_row[self.data_columns]
             if status == "COMPLETED" or status == "FAILED" or status == "ABANDONED":
                 terminated = True
