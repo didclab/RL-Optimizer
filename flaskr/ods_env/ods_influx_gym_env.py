@@ -177,7 +177,7 @@ class InfluxEnv(gym.Env):
                 first_meta_data = oh.query_job_batch_obj(self.job_id)
             print("InfluxEnv: relaunching job: ", first_meta_data['jobParameters'])
             oh.submit_transfer_request(first_meta_data, optimizer="DDPG")
-            self.job_id += 1
+            self.job_id = int(self.job_id) + 1
             # time.sleep(10)
 
         if len(self.past_actions) > 0 and len(self.past_rewards) > 0:
