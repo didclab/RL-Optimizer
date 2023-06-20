@@ -156,6 +156,12 @@ class InfluxEnv(gym.Env):
             self.space_df.drop_duplicates(inplace=True)
             self.space_df.dropna(inplace=True)
             cur_row = self.space_df.tail(n=1)
+            status = cur_row
+            observation = last_row[self.data_columns]
+            if status == "COMPLETED" or status == "FAILED" or status == "ABANDONED":
+                terminated = True
+                break
+
             if action[0] == cur_row['concurrency'].iloc[-1] and action[1] == cur_row['parallelism'].iloc[-1]:
                 break
             else:
