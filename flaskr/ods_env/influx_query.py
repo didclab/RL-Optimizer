@@ -9,13 +9,8 @@ from influxdb_client import InfluxDBClient
 class InfluxData:
     # The transfer_node_name should probably come in during the create request
     def __init__(self, bucket_name="OdsTransferNodes", transfer_node_name="jgoldverg@gmail.com-mac", file_name=None, time_window="-2m"):
-        # self.client = InfluxDBClient.from_config_file("config.ini")
+        self.client = InfluxDBClient.from_config_file("config.ini")
         #url, token: str = None, debug=None, timeout=10_000, enable_gzip=False, org: str = None,
-        self.client = InfluxDBClient(
-            url=os.getenv("INFLUXDB_URL"),
-            token=os.getenv("INFLUXDB_TOKEN"),
-            org=os.getenv("INFLUXDB_ORG")
-        )
         self.space_keys = [
             'active_core_count, bytesDownloaded, bytesUploaded, chunkSize, concurrency, parallelism, pipelining, destination_rtt, source_rtt, read_throughput, write_throughput, ']
         self.query_api = self.client.query_api()
@@ -41,16 +36,17 @@ class InfluxData:
         df = pd.DataFrame()
         while not done:
             df = self.query_api.query_data_frame(q)
-            if type(df) == list:
+            if isinstance(df, list):
                 df = pd.concat(df, axis=0, ignore_index=True)
+                break
             if df.empty:
                 time.sleep(1)
                 continue
-            if not all([item in list(df.columns) for item in keys_to_expect]):
-                time.sleep(1)
-                continue
             else:
-                done = True
+                break
+        df.drop_duplicates(inplace=True)
+        # df.dropna(inplace=True)
+        df.fillna(0, inplace=True)
         return df
 
     def prune_df(self, df):

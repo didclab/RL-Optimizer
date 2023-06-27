@@ -57,15 +57,16 @@ class JacobReward(AbstractReward):
     @staticmethod
     def calculate(params: Params):
         reward = params.throughput
+        print("Throughput: ", reward)
         pen_rtt = 1-(params.rtt/(1000 * params.hyper_rtt))
         reward = reward * pen_rtt
-
+        print("Discounting RTT: ", reward)
         pen_cc = 1-(params.cc/(params.max_cc * params.hyper_cc))
         reward = reward * pen_cc
-
+        print("Discounting Conc: ", reward)
         pen_p = 1 - (params.p / (params.max_p * params.hyper_p))
         reward = reward * pen_p
-
+        print("Discounting P: ", reward)
         return reward
 
 

@@ -4,6 +4,7 @@ import pandas
 import torch
 import numpy as np
 import os
+import time
 
 from .ods_env import ods_influx_gym_env
 from .ods_env.ods_rewards import ArslanReward, JacobReward
@@ -292,9 +293,8 @@ class DDPGTrainer(AbstractTrainer):
         print("Starting to warm the DDPG buffer")
 
         df = self.env.influx_client.query_space(time_window="-1d")
+        df = df.loc[(df != 0).any(1)]
         df = df[self.obs_cols]
-        df.drop_duplicates(inplace=True)
-        df.dropna(inplace=True)
 
         for i in range(df.shape[0] - 1):
             current_row = df.tail(n=1)
@@ -328,7 +328,7 @@ class DDPGTrainer(AbstractTrainer):
         options = {'launch_job': False}
         print("Before the first env reset()")
         obs = self.env.reset(options=options)[0]  # gurantees job is running
-        print("State in train(): ", obs, "\t", "type: ", type(obs))
+        print("Starting State in train(): ", obs, "\t", "type: ", type(obs))
         obs = np.asarray(a=obs, dtype=numpy.float64)
         ts = 0
         for episode in range(max_episodes):
@@ -357,8 +357,9 @@ class DDPGTrainer(AbstractTrainer):
                     obs = np.asarray(a=obs, dtype=numpy.float64)
                     print("Episode reward: {}", episode_reward)
                     episode_rewards.append(episode_reward)
+                time.sleep(1)
 
-            if episode % 10 == 0:
+            if episode % 1 == 0:
                 self.agent.save_checkpoint("ddpg_influx_gym")
                 print("Episode ", episode, " has average reward of: ", np.mean(episode_rewards))
 
@@ -375,6 +376,7 @@ class DDPGTrainer(AbstractTrainer):
         self.create_opt_request = create_opt_req
         self.env.create_opt_request = create_opt_req
         self.env.job_id = create_opt_req.job_id
+        self.env.reset()
 
     def close(self):
         self.env.close()

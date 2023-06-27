@@ -64,8 +64,7 @@ class OptimizerMap(object):
                 trainer = self.optimizer_map[create_req.node_id]
                 # update the create optimizer to be the last one from the TS.
                 trainer.set_create_request(create_opt_req=create_req)
-                print("Set new CreateReqeust in Trainer: ", create_req)
-            print("Optimizer already exists for", create_req.node_id)
+            print("Updated Create Optimizer as we already have optimizer")
             return False
 
     def input_optimizer(self, input_req: InputOptimizerRequest):
