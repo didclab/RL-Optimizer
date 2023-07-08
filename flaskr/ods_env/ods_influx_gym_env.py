@@ -8,7 +8,7 @@ from flaskr.classes import CreateOptimizerRequest
 import flaskr.ods_env.ods_helper as oh
 from flaskr.ods_env import env_utils
 from flaskr.ods_env.influx_query import InfluxData
-
+from flaskr.algos.ddpg.memory import ReplayBuffer
 from .ods_rewards import DefaultReward, ArslanReward, JacobReward
 import requests
 
@@ -33,7 +33,7 @@ pd.set_option('display.precision', 5)
 
 class InfluxEnv(gym.Env):
 
-    def __init__(self, create_opt_req: CreateOptimizerRequest,
+    def __init__(self, create_opt_req: CreateOptimizerRequest, replay_buffer: ReplayBuffer,
                  action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns=[]):
         super(InfluxEnv, self).__init__()
         self.create_opt_request = create_opt_req
@@ -75,65 +75,65 @@ class InfluxEnv(gym.Env):
 
     def step(self, action, reward_type=None):
         print("Step: action:", action)
-        self.space_df = self.influx_client.query_space("-30m")
-        #df[df['col1'].isin([2]) != True]
-        self.space_df = self.space_df[self.space_df['jobId'].isin([self.job_id]) != True]
-
-        # Need to loop while we have not gotten the next observation of the agents.
+        df = self.influx_client.query_space("-2m")
+        df = pd.concat([self.space_df, df])
+        df = df.dropna()
+        df.drop_duplicates(inplace=True)
+        self.space_df = df
         last_row = self.space_df.tail(n=1)
         observation = last_row[self.data_columns]
 
         if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
             1] > self.create_opt_request.max_parallelism:
             reward = -10000000
-            terminated, meta = oh.query_if_job_done_direct(self.job_id)
-            return observation, reward, terminated, None, None
-        else:
-            if int(last_row['concurrency']) != action[0] or int(last_row['parallelism']) != action[1]:
-                oh.send_application_params_tuple(
-                    transfer_node_name=self.create_opt_request.node_id,
-                    cc=action[0], p=action[1], pp=1, chunkSize=0
-                )
+            return observation, reward, False, None, None
 
-        #block until action applies
+        # submit action as we clip it hence its always in range
+        if int(last_row['concurrency'].iloc[0]) != action[0] or int(last_row['parallelism'].iloc[0]) != action[1]:
+            oh.send_application_params_tuple(
+                transfer_node_name=self.create_opt_request.node_id,
+                cc=action[0], p=action[1], pp=1, chunkSize=0
+            )
+
+        # block until action applies
         while True:
+            print("Blocking till action: ", action)
             df = self.influx_client.query_space("-30s")
-            cur_row = df.tail(n=1)
-            observation = cur_row[self.data_columns]
-            print(cur_row)
-            if self.create_opt_request.db_type == "hsql":
-                terminated, meta = oh.query_if_job_done_direct(self.job_id)
-            else:
-                terminated, meta = oh.query_if_job_done(self.job_id)
-            if terminated:
-                print("JobId: ", self.job_id, " job is done")
+            if not set(self.data_columns).issubset(df.columns):
+                time.sleep(1)
+                continue
+            last_row = df.tail(n=1)
+            observation = last_row[self.data_columns]
+            if action[0] == last_row['concurrency'].iloc[-1] and action[1] == last_row['parallelism'].iloc[-1]:
                 break
+            if self.create_opt_request.db_type == "hsql":
+                terminated, _ = oh.query_if_job_done_direct(self.job_id)
+            else:
+                terminated, _ = oh.query_if_job_done(self.job_id)
 
-            if 'concurrency' in cur_row.columns and 'parallelism' in cur_row.columns:
-                if action[0] == cur_row['concurrency'].iloc[-1] and action[1] == cur_row['parallelism'].iloc[-1]:
-                    if reward_type == 'jacob':
-                        thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
-                        self.past_actions.append(action)
-                        reward_params = JacobReward.Params(
-                            throughput=thrpt,
-                            rtt=rtt,
-                            c=last_row['concurrency'].iloc[-1],
-                            max_cc=self.create_opt_request.max_concurrency,
-                            p=last_row['parallelism'].iloc[-1],
-                            max_p=self.create_opt_request.max_parallelism,
-                            max_cpu_freq=last_row['cpu_frequency_max'].iloc[-1],
-                            min_cpu_freq=last_row['cpu_frequency_min'].iloc[-1],
-                            cpu_freq=last_row['cpu_frequency_current'].iloc[-1]
-                        )
+            if terminated: break
+        # compute jacob reward
+        thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
+        self.past_actions.append(action)
+        reward_params = JacobReward.Params(
+            throughput=thrpt,
+            rtt=rtt,
+            c=last_row['concurrency'].iloc[-1],
+            max_cc=self.create_opt_request.max_concurrency,
+            p=last_row['parallelism'].iloc[-1],
+            max_p=self.create_opt_request.max_parallelism,
+            max_cpu_freq=last_row['cpu_frequency_max'].iloc[-1],
+            min_cpu_freq=last_row['cpu_frequency_min'].iloc[-1],
+            cpu_freq=last_row['cpu_frequency_current'].iloc[-1]
+        )
 
-                        reward = JacobReward.calculate(reward_params)
-                        print("Step reward: ", reward)
-                        self.past_rewards.append(reward)
-                    break
+        reward = JacobReward.calculate(reward_params)
+        print("Step reward: ", reward)
+        self.past_rewards.append(reward)
 
-            time.sleep(1)
-        # this reward is of the last influx column which is mapped to that
-        # observation so this is the past time steps not the current actions rewards
+        if terminated:
+            print("JobId: ", self.job_id, " job is done")
+
         return observation, reward, terminated, None, None
 
     """
@@ -157,10 +157,8 @@ class InfluxEnv(gym.Env):
 
         self.past_actions.clear()
         self.past_rewards.clear()
-        # env launches the last job again.
-        self.space_df = self.influx_client.query_space("-1d")  # last min is 2 points.
-        print(self.space_df.head())
-
+        self.space_df = self.influx_client.query_space("-1d")
+        self.space_df.drop_duplicates(inplace=True)
         obs = self.space_df[self.data_columns].tail(n=1)
         return obs, {}
 

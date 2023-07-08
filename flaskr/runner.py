@@ -271,7 +271,7 @@ class DDPGTrainer(AbstractTrainer):
                          'write_throughput']
         self.device = torch.device('mps' if torch.cuda.is_available() else 'cpu')
         self.create_opt_request = create_opt_request  # this gets updated every call
-        self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-1d",
+        self.env = ods_influx_gym_env.InfluxEnv(replay_buffer=self.replay_buffer,create_opt_req=create_opt_request, time_window="-30d",
                                                 observation_columns=self.obs_cols)
         state_dim = self.env.observation_space.shape[0]
         action_dim = self.env.action_space.shape[0]
@@ -292,8 +292,8 @@ class DDPGTrainer(AbstractTrainer):
     def warm_buffer(self):
         print("Starting to warm the DDPG buffer")
 
-        df = self.env.influx_client.query_space(time_window="-1d")
-        df = df.loc[(df != 0).any(1)]
+        df = self.env.space_df
+        # df = df.loc[(df != 0).any(1)]
         df = df[self.obs_cols]
 
         for i in range(df.shape[0] - 1):
@@ -335,9 +335,15 @@ class DDPGTrainer(AbstractTrainer):
             episode_reward = 0
             terminated = False
             while not terminated:
-                action = (self.agent.select_action(np.array(obs)))
+                if self.replay_buffer.size < 1e6:
+                    action = self.env.action_space.sample()
+                    print("Sampled action space: buffer size:", self.replay_buffer.size)
+                else:
+                    action = (self.agent.select_action(np.array(obs)))
+                    print("Raw agent action",action)
                 action = np.rint(action)
-                action = np.clip(action, 1, 32)
+                # action = np.clip(action, 1, 32)
+
                 new_obs, reward, terminated, truncated, info = self.env.step(action, reward_type='jacob')
                 ts += 1
                 self.replay_buffer.add(obs, action, new_obs, reward, terminated)

@@ -45,8 +45,8 @@ class InfluxData:
             else:
                 break
         df.drop_duplicates(inplace=True)
-        # df.dropna(inplace=True)
-        df.fillna(0, inplace=True)
+        df.dropna(inplace=True)
+        # df.fillna(0, inplace=True)
         return df
 
     def prune_df(self, df):
