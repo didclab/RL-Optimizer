@@ -74,7 +74,7 @@ class ArslanReward(AbstractReward):
             self.neg_rew = neg_rew
             self.neg_thresh = neg_thresh
 
-            self.s = 1/bwidth
+            self.s = 1 / bwidth
 
             self.total_threads = parallelism * concurrency
 
@@ -112,3 +112,25 @@ class ArslanReward(AbstractReward):
             reward = params.neg_rew
 
         return reward, utility
+
+
+class RatioReward(AbstractReward):
+    class Params(AbstractReward.AbstractParams):
+        def __init__(self, read_throughput, write_throughput, read_over_write=True):
+            self.read_throughput = read_throughput
+            self.write_throughput = write_throughput
+            self.r_w = read_over_write
+
+    @staticmethod
+    def construct(x, r_w=True):
+        if r_w:
+            return x.read_throughput / (x.write_throughput + 1e-5)
+        else:
+            return x.write_throughput / (x.read_throughput + 1e-5)
+
+    @staticmethod
+    def calculate(params: Params):
+        if params.r_w:
+            return params.read_throughput / (params.write_throughput + 1e-5)
+        else:
+            return params.write_throughput / (params.read_throughput + 1e-5)

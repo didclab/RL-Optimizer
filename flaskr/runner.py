@@ -8,7 +8,7 @@ import time
 from torch.utils.tensorboard import SummaryWriter
 
 from .ods_env import ods_influx_gym_env
-from .ods_env.ods_rewards import ArslanReward
+from .ods_env.ods_rewards import ArslanReward, RatioReward
 
 from flaskr import classes
 
@@ -170,6 +170,8 @@ class BDQTrainer(AbstractTrainer):
         self.save_file_name = f"BDQ_{'influx_gym_env'}"
         self.training_flag = False
 
+        self.use_ratio = False
+
         if enable_tensorboard:
             print("[INFO] Tensorboard Enabled")
         else:
@@ -183,7 +185,8 @@ class BDQTrainer(AbstractTrainer):
         stds = self.stats.loc['std']
 
         # create utility column inplace
-        df = df.assign(utility=lambda x: ArslanReward.construct(x, penalty='diff_dropin'))
+        if not self.use_ratio:
+            df = df.assign(utility=lambda x: ArslanReward.construct(x, penalty='diff_dropin'))
 
         for i in range(df.shape[0] - 1):
             current_row = df.iloc[i]
@@ -194,8 +197,11 @@ class BDQTrainer(AbstractTrainer):
 
             next_row = df.iloc[i + 1]
             next_obs = next_row[self.obs_cols]
-            
-            reward = ArslanReward.compare(current_row['utility'], next_row['utility'], pos_rew=300, neg_rew=-600)
+
+            if self.use_ratio:
+                reward = RatioReward.construct(obs)
+            else:
+                reward = ArslanReward.compare(current_row['utility'], next_row['utility'], pos_rew=300, neg_rew=-600)
             terminated = False
 
             norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
