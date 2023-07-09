@@ -166,11 +166,10 @@ class BDQTrainer(AbstractTrainer):
         self.norm_data = load_clean_norm_dataset('data/benchmark_data.csv')
         self.stats = self.norm_data.describe()
 
+        self.use_ratio = True
         self.warm_buffer()
         self.save_file_name = f"BDQ_{'influx_gym_env'}"
         self.training_flag = False
-
-        self.use_ratio = False
 
         if enable_tensorboard:
             print("[INFO] Tensorboard Enabled")
@@ -231,6 +230,10 @@ class BDQTrainer(AbstractTrainer):
         stds = self.stats.loc['std']
 
         ts = 0
+        reward_type = 'arslan'
+        if self.use_ratio:
+            reward_type = 'ratio'
+        
         for episode in range(max_episodes):
             episode_reward = 0
             terminated = False
@@ -245,7 +248,7 @@ class BDQTrainer(AbstractTrainer):
                 # action = np.clip(action, 1, 32)
                 params = [self.actions_to_params[a] for a in actions]
 
-                new_obs, reward, terminated, truncated, info = self.env.step(params, reward_type='arslan')
+                new_obs, reward, terminated, truncated, info = self.env.step(params, reward_type=reward_type)
                 ts += 1
 
                 norm_obs = (obs - means[self.obs_cols].to_numpy()) / \

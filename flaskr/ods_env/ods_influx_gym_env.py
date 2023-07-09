@@ -10,6 +10,7 @@ from flaskr.ods_env import env_utils
 from flaskr.ods_env.influx_query import InfluxData
 
 from .ods_rewards import DefaultReward, ArslanReward, JacobReward
+from .ods_rewards import RatioReward
 import requests
 
 requests.packages.urllib3.disable_warnings()
@@ -123,7 +124,15 @@ class InfluxEnv(gym.Env):
                     cc=action[0], p=action[1], pp=1, chunkSize=0
                 )
 
-            if reward_type == 'arslan':
+            if reward_type == 'ratio':
+                reward_params = RatioReward.Params(
+                    read_throughput=last_row.read_throughput,
+                    write_throughput=last_row.write_throughput
+                )
+                reward = RatioReward.calculate(reward_params)
+                self.past_actions.append(action)
+
+            elif reward_type == 'arslan':
                 reward_params = ArslanReward.Params(
                     penalty=diff_drop_in,
                     throughput=env_utils.smallest_throughput_rtt(last_row=last_row)[0],

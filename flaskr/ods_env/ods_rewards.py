@@ -131,6 +131,8 @@ class RatioReward(AbstractReward):
     @staticmethod
     def calculate(params: Params):
         if params.r_w:
-            return params.read_throughput / (params.write_throughput + 1e-5)
+            reward = params.read_throughput.to_numpy() / (params.write_throughput.to_numpy() + 1e-5)
+            return reward[0]
         else:
-            return params.write_throughput / (params.read_throughput + 1e-5)
+            reward = params.write_throughput.to_numpy() / (params.read_throughput.to_numpy() + 1e-5)
+            return reward[0]
