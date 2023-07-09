@@ -261,25 +261,33 @@ class BDQTrainer(AbstractTrainer):
 class DDPGTrainer(AbstractTrainer):
     def __init__(self, create_opt_request=classes.CreateOptimizerRequest, max_episodes=100, batch_size=64,
                  update_policy_time_steps=20):
-        self.obs_cols = ['active_core_count', 'allocatedMemory',
-                         'bytes_recv', 'bytes_sent', 'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
-                         'dropin', 'dropout', 'errin', 'errout', 'freeMemory', 'maxMemory', 'memory',
-                         'packet_loss_rate', 'packets_recv',
-                         'packets_sent', 'bytesDownloaded', 'bytesUploaded', 'chunkSize', 'concurrency',
+        # self.obs_cols = ['active_core_count', 'allocatedMemory',
+        #                  'bytes_recv', 'bytes_sent', 'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
+        #                  'dropin', 'dropout', 'errin', 'errout', 'freeMemory', 'maxMemory', 'memory',
+        #                  'packet_loss_rate', 'packets_recv',
+        #                  'packets_sent', 'bytesDownloaded', 'bytesUploaded', 'chunkSize', 'concurrency',
+        #                  'destination_latency', 'destination_rtt',
+        #                  'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt',
+        #                  'write_throughput']
+        self.obs_cols = ['active_core_count',
+                         'dropin', 'dropout', 'packets_recv', 'packets_sent', 'chunkSize', 'concurrency',
                          'destination_latency', 'destination_rtt',
-                         'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt',
+                        'parallelism', 'read_throughput', 'source_latency', 'source_rtt',
                          'write_throughput']
+
         self.device = torch.device('mps' if torch.cuda.is_available() else 'cpu')
         self.create_opt_request = create_opt_request  # this gets updated every call
-        self.env = ods_influx_gym_env.InfluxEnv(replay_buffer=self.replay_buffer,create_opt_req=create_opt_request, time_window="-30d",
+        self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-30d",
                                                 observation_columns=self.obs_cols)
         state_dim = self.env.observation_space.shape[0]
         action_dim = self.env.action_space.shape[0]
         self.agent = ddpg_agents.DDPGAgent(
-            state_dim=state_dim, action_dim=action_dim, device=self.device, max_action=None
+            state_dim=state_dim, action_dim=action_dim, device=self.device,
+            max_action=self.create_opt_request.max_concurrency
         )
 
         self.replay_buffer = memory.ReplayBuffer(state_dimension=state_dim, action_dimension=action_dim)
+        self.env.set_buffer(self.replay_buffer)
         self.warm_buffer()
         self.save_file_name = f"DDPG_{'influx_gym_env'}"
         try:
@@ -287,7 +295,6 @@ class DDPGTrainer(AbstractTrainer):
         except Exception as e:
             pass
         self.training_flag = False
-
 
     def warm_buffer(self):
         print("Starting to warm the DDPG buffer")
@@ -297,7 +304,7 @@ class DDPGTrainer(AbstractTrainer):
         df = df[self.obs_cols]
 
         for i in range(df.shape[0] - 1):
-            current_row = df.tail(n=1)
+            current_row = df.iloc[i]
 
             obs = current_row[self.obs_cols]
             action = obs[['parallelism', 'concurrency']]
@@ -306,41 +313,41 @@ class DDPGTrainer(AbstractTrainer):
             reward_params = JacobReward.Params(
                 throughput=thrpt,
                 rtt=rtt,
-                c=current_row['concurrency'].iloc[-1],
+                c=current_row['concurrency'],
                 max_cc=self.create_opt_request.max_concurrency,
-                p=current_row['parallelism'].iloc[-1],
+                p=current_row['parallelism'],
                 max_p=self.create_opt_request.max_parallelism,
-                max_cpu_freq=current_row['cpu_frequency_max'].iloc[-1],
-                min_cpu_freq=current_row['cpu_frequency_min'].iloc[-1],
-                cpu_freq=current_row['cpu_frequency_current'].iloc[-1]
+                # max_cpu_freq=current_row['cpu_frequency_max'],
+                # min_cpu_freq=current_row['cpu_frequency_min'],
+                # cpu_freq=current_row['cpu_frequency_current']
             )
             reward = JacobReward.calculate(reward_params)
-            # current_job_id = current_row['jobId']
+
             terminated = False
-            # if next_obs['jobId'] != current_job_id:
-            #     terminated = True
+            if 'jobId' in current_row and 'jobId' and next_obs:
+                if current_row['jobId'] != next_obs['jobId']:
+                    terminated = True
 
-            self.replay_buffer.add(obs, action, next_obs, reward, terminated)
+            self.replay_buffer.add(obs, action, next_obs, reward, False)
 
-    def train(self, max_episodes=1000, batch_size=100):
+    def train(self, max_episodes=1000, batch_size=32):
         self.training_flag = True
         episode_rewards = []
         options = {'launch_job': False}
         print("Before the first env reset()")
         obs = self.env.reset(options=options)[0]  # gurantees job is running
-        print("Starting State in train(): ", obs, "\t", "type: ", type(obs))
         obs = np.asarray(a=obs, dtype=numpy.float64)
         ts = 0
         for episode in range(max_episodes):
             episode_reward = 0
             terminated = False
             while not terminated:
-                if self.replay_buffer.size < 1e6:
+                if self.replay_buffer.size < 1e3:
                     action = self.env.action_space.sample()
                     print("Sampled action space: buffer size:", self.replay_buffer.size)
                 else:
                     action = (self.agent.select_action(np.array(obs)))
-                    print("Raw agent action",action)
+                    print("Raw agent action", action)
                 action = np.rint(action)
                 # action = np.clip(action, 1, 32)
 
@@ -354,7 +361,7 @@ class DDPGTrainer(AbstractTrainer):
                 # print("Next Obs: ", new_obs)
 
                 obs = new_obs
-                if self.replay_buffer.size > batch_size:
+                if self.replay_buffer.size > batch_size and ts % 10 == 0:
                     self.agent.train(replay_buffer=self.replay_buffer, batch_size=batch_size)
 
                 episode_reward += reward

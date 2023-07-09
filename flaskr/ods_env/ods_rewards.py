@@ -38,7 +38,7 @@ class DefaultReward(AbstractReward):
 
 class JacobReward(AbstractReward):
     class Params(AbstractReward.AbstractParams):
-        def __init__(self, throughput, rtt, max_cpu_freq, min_cpu_freq, cpu_freq, c, p, max_cc, max_p):
+        def __init__(self, throughput, rtt, c, p, max_cc, max_p):
             # super().__init__()
             self.throughput = throughput
             self.rtt = rtt
@@ -49,24 +49,22 @@ class JacobReward(AbstractReward):
             self.p = p
             self.hyper_p = 1
             self.max_p = max_p
-            self.cpu_freq = cpu_freq
             self.hyper_cpu_freq = .1
-            self.min_cpu_freq = min_cpu_freq
-            self.max_cpu_freq = max_cpu_freq
 
     @staticmethod
     def calculate(params: Params):
-        print("Params: ", vars(params))
-        reward = params.throughput
-        print("Throughput: ", reward, "Mbps")
-        pen_rtt = 1-(params.rtt/(1000 * params.hyper_rtt))
-        reward = reward * pen_rtt
-        print("Discounting RTT: ", reward)
-        reward = reward / params.cc
-        print("Discounting Conc: ", reward)
-        reward = reward / params.p
-        print("Discounting P: ", reward)
-        return reward
+        # print("Params: ", vars(params))
+        reward = params.throughput / 10000 #normalizing for a 10Gbps link
+        norm_thrpt = 2* (reward-.5) #normalizing between (-1,-1)
+        # print("Throughput: ", reward, "Mbps")
+        # pen_rtt = 1-(params.rtt/(1000 * params.hyper_rtt))
+        # reward = reward * pen_rtt
+        # print("Discounting RTT: ", reward)
+        # reward = reward / params.cc
+        # print("Discounting Conc: ", reward)
+        # reward = reward / params.p
+        # print("Discounting P: ", reward)
+        return norm_thrpt
 
 
 class ArslanReward(AbstractReward):

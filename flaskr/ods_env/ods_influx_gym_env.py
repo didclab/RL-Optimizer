@@ -33,9 +33,10 @@ pd.set_option('display.precision', 5)
 
 class InfluxEnv(gym.Env):
 
-    def __init__(self, create_opt_req: CreateOptimizerRequest, replay_buffer: ReplayBuffer,
+    def __init__(self, create_opt_req: CreateOptimizerRequest,
                  action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns=[]):
         super(InfluxEnv, self).__init__()
+        self.replay_buffer = None
         self.create_opt_request = create_opt_req
         print(create_opt_req.node_id.split("-"))
         bucket_name = create_opt_req.node_id.split("-")[0]
@@ -83,53 +84,79 @@ class InfluxEnv(gym.Env):
         last_row = self.space_df.tail(n=1)
         observation = last_row[self.data_columns]
 
+        if self.create_opt_request.db_type == "hsql":
+            terminated, _ = oh.query_if_job_done_direct(self.job_id)
+        else:
+            terminated, _ = oh.query_if_job_done(self.job_id)
+
         if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
             1] > self.create_opt_request.max_parallelism:
-            reward = -10000000
-            return observation, reward, False, None, None
+            reward = action[0] * action[1]
+            return observation, reward, terminated, None, None
 
-        # submit action as we clip it hence its always in range
+        # submit action to take with TS
         if int(last_row['concurrency'].iloc[0]) != action[0] or int(last_row['parallelism'].iloc[0]) != action[1]:
             oh.send_application_params_tuple(
                 transfer_node_name=self.create_opt_request.node_id,
                 cc=action[0], p=action[1], pp=1, chunkSize=0
             )
 
-        # block until action applies
+        # block until action applies to TS
+        terminated = False
+        reward = 0
+        count = 0
+        fail_count = 0
         while True:
             print("Blocking till action: ", action)
             df = self.influx_client.query_space("-30s")
             if not set(self.data_columns).issubset(df.columns):
                 time.sleep(1)
                 continue
+            #For every query we want to add to the buffer bc its more data on transfer.
+            for i in range(df.shape[0] - 1):
+                current_row = df.iloc[i]
+                obs = current_row[self.data_columns]
+                obs_action = obs[['parallelism', 'concurrency']]
+                next_obs = df.iloc[i + 1][self.data_columns]
+                thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=current_row)
+                reward_params = JacobReward.Params(
+                    throughput=thrpt,
+                    rtt=rtt,
+                    c=current_row['concurrency'],
+                    max_cc=self.create_opt_request.max_concurrency,
+                    p=current_row['parallelism'],
+                    max_p=self.create_opt_request.max_parallelism,
+                    # max_cpu_freq=current_row['cpu_frequency_max'],
+                    # min_cpu_freq=current_row['cpu_frequency_min'],
+                    # cpu_freq=current_row['cpu_frequency_current']
+                )
+                reward = JacobReward.calculate(reward_params)
+                print("Intermediate Step reward: ", reward)
+                if self.replay_buffer is not None:
+                    self.replay_buffer.add(obs, action, next_obs, reward, terminated)
+                if obs_action['concurrency'] == action[0] and obs_action['parallelism'] == action[1]:
+                    count += 1
+                else:
+                    fail_count += 1
+
+                if fail_count == 10:
+                    oh.send_application_params_tuple(
+                        transfer_node_name=self.create_opt_request.node_id,
+                        cc=action[0], p=action[1], pp=1, chunkSize=0
+                    )
+                    fail_count = 0
+
             last_row = df.tail(n=1)
             observation = last_row[self.data_columns]
-            if action[0] == last_row['concurrency'].iloc[-1] and action[1] == last_row['parallelism'].iloc[-1]:
-                break
+            self.past_rewards.append(reward)
+
             if self.create_opt_request.db_type == "hsql":
                 terminated, _ = oh.query_if_job_done_direct(self.job_id)
             else:
                 terminated, _ = oh.query_if_job_done(self.job_id)
 
-            if terminated: break
-        # compute jacob reward
-        thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=last_row)
-        self.past_actions.append(action)
-        reward_params = JacobReward.Params(
-            throughput=thrpt,
-            rtt=rtt,
-            c=last_row['concurrency'].iloc[-1],
-            max_cc=self.create_opt_request.max_concurrency,
-            p=last_row['parallelism'].iloc[-1],
-            max_p=self.create_opt_request.max_parallelism,
-            max_cpu_freq=last_row['cpu_frequency_max'].iloc[-1],
-            min_cpu_freq=last_row['cpu_frequency_min'].iloc[-1],
-            cpu_freq=last_row['cpu_frequency_current'].iloc[-1]
-        )
-
-        reward = JacobReward.calculate(reward_params)
-        print("Step reward: ", reward)
-        self.past_rewards.append(reward)
+            if count >= 2 or terminated: break
+            time.sleep(3)
 
         if terminated:
             print("JobId: ", self.job_id, " job is done")
@@ -186,3 +213,33 @@ class InfluxEnv(gym.Env):
     def close(self):
         self.influx_client.close_client()
         self.space_df = None
+
+    def set_buffer(self, replay_buffer: ReplayBuffer):
+        self.replay_buffer = replay_buffer
+
+    def fill_buffer(self, df: pd.DataFrame):
+        for i in range(df.shape[0] - 1):
+            current_row = df.tail(n=1)
+
+            obs = current_row[self.obs_cols]
+            action = obs[['parallelism', 'concurrency']]
+            next_obs = df.iloc[i + 1]
+            thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=current_row)
+            reward_params = JacobReward.Params(
+                throughput=thrpt,
+                rtt=rtt,
+                c=current_row['concurrency'].iloc[-1],
+                max_cc=self.create_opt_request.max_concurrency,
+                p=current_row['parallelism'].iloc[-1],
+                max_p=self.create_opt_request.max_parallelism,
+                max_cpu_freq=current_row['cpu_frequency_max'].iloc[-1],
+                min_cpu_freq=current_row['cpu_frequency_min'].iloc[-1],
+                cpu_freq=current_row['cpu_frequency_current'].iloc[-1]
+            )
+            reward = JacobReward.calculate(reward_params)
+            # current_job_id = current_row['jobId']
+            terminated = False
+            # if next_obs['jobId'] != current_job_id:
+            #     terminated = True
+
+            self.replay_buffer.add(obs, action, next_obs, reward, terminated)

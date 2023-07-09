@@ -24,6 +24,7 @@ class ReplayBuffer(object):
         self.not_done[self.ptr] = 1. - done
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
+        print("Replay Buffer Size: ", self.size)
 
     def sample(self, batch_size):
         ind = np.random.randint(0, self.size, size=batch_size)
