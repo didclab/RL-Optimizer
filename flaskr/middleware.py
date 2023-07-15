@@ -59,12 +59,14 @@ class OptimizerMap(object):
                 thread.start()
             else:
                 return False
+
+        # calling train() directly blocks the transfer service
         else:
             if create_req.optimizerType == self.ddpg or create_req.optimizerType == self.bdq:
                 trainer = self.optimizer_map[create_req.node_id]
                 # update the create optimizer to be the last one from the TS.
                 trainer.set_create_request(create_opt_req=create_req)
-            print("Updated Create Optimizer as we already have optimizer")
+            print("Optimizer already exists for", create_req.node_id)
             return False
 
     def input_optimizer(self, input_req: InputOptimizerRequest):

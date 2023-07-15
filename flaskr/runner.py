@@ -6,9 +6,10 @@ import numpy as np
 import os
 import time
 
-from .ods_env import ods_influx_gym_env
-from .ods_env.ods_rewards import ArslanReward, JacobReward
+from torch.utils.tensorboard import SummaryWriter
 from .ods_env import env_utils
+from .ods_env import ods_influx_gym_env
+from .ods_env.ods_rewards import ArslanReward, RatioReward, JacobReward
 
 from flaskr import classes
 
@@ -22,6 +23,9 @@ from .ods_env.env_utils import smallest_throughput_rtt
 
 from abc import ABC, abstractmethod
 
+enable_tensorboard = os.getenv("ENABLE_TENSORBOARD", default='False').lower() in ('true', '1', 't')
+if enable_tensorboard:
+    writer = SummaryWriter()
 
 class AbstractTrainer(ABC):
     def warm_buffer(self):
@@ -71,7 +75,7 @@ def fetch_df(env: ods_influx_gym_env.InfluxEnv, obs_cols: list) -> pandas.DataFr
     df.dropna(inplace=True)
 
     # create diff-drop-in column inplace
-    df.assign(diff_dropin=df['dropin'].diff(periods=1).fillna(0))
+    df.insert(0, 'diff_dropin', df['dropin'].diff(periods=1).fillna(0))
 
     return df
 
@@ -88,16 +92,20 @@ def convert_to_action(par, params_to_actions) -> int:
 
     par = int(par)
     if par in params_to_actions:
-        return params_to_actions[par]
+        # return params_to_actions[par]
+        return params_to_actions[min(2, par)]
     else:
-        return int(np.exp2(np.round(np.log2(par))))
+        return min(2, int(np.round(np.log2(par))))
 
 
 def load_clean_norm_dataset(path: str) -> pandas.DataFrame:
     df = pandas.read_csv(path)
 
     df_pivot = pandas.pivot_table(df, index='_time', columns='_field', values='_value', aggfunc=np.sum)
-    df_pivot = df_pivot.drop(['_field', 'string', 'true'], axis=1)
+    try:
+        df_pivot = df_pivot.drop(['_field', 'string', 'true'], axis=1)
+    except:
+        pass
     df_pivot.columns.rename(None, inplace=True)
 
     for c in df_pivot.columns:
@@ -106,6 +114,8 @@ def load_clean_norm_dataset(path: str) -> pandas.DataFrame:
     df_pivot = df_pivot.select_dtypes(include=np.number)
     df_pivot = df_pivot.dropna(axis=1, how='all')
     df_final = df_pivot.dropna(axis=0, how='any')
+
+    df_final.insert(0, 'diff_dropin', df_final['dropin'].diff(periods=1).fillna(0))
 
     return df_final
 
@@ -130,8 +140,10 @@ class BDQTrainer(AbstractTrainer):
         state_dim = self.env.observation_space.shape[0]
         # 1, 2, 4, 8, 16, 32 = Discrete(6)
         # 2, 4, 8, 16, 32 = Discrete(5)
-        self.action_space = gymnasium.spaces.Discrete(5)
+        self.action_space = gymnasium.spaces.Discrete(3)
         action_dim = self.action_space.n
+        self.branches = 2
+        
         self.batch_size = batch_size
         self.max_episodes = max_episodes
 
@@ -146,17 +158,24 @@ class BDQTrainer(AbstractTrainer):
         self.actions_to_params = list(self.params_to_actions.keys())
 
         self.agent = bdq_agents.BDQAgent(
-            state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2
+            state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2,
+            decay=0.992
         )
 
-        self.replay_buffer = ReplayBufferBDQ(state_dimension=state_dim, action_dimension=action_dim)
+        self.replay_buffer = ReplayBufferBDQ(state_dimension=state_dim, action_dimension=self.branches)
 
         self.norm_data = load_clean_norm_dataset('data/benchmark_data.csv')
         self.stats = self.norm_data.describe()
 
+        self.use_ratio = True
         self.warm_buffer()
         self.save_file_name = f"BDQ_{'influx_gym_env'}"
         self.training_flag = False
+
+        if enable_tensorboard:
+            print("[INFO] Tensorboard Enabled")
+        else:
+            print("[INFO] Tensorboard Disabled")
 
     def warm_buffer(self):
         df = fetch_df(self.env, self.obs_cols)
@@ -166,7 +185,8 @@ class BDQTrainer(AbstractTrainer):
         stds = self.stats.loc['std']
 
         # create utility column inplace
-        df.assign(utility=lambda x: ArslanReward.construct(x, penalty='diff_dropin'))
+        if not self.use_ratio:
+            df = df.assign(utility=lambda x: ArslanReward.construct(x, penalty='diff_dropin'))
 
         for i in range(df.shape[0] - 1):
             current_row = df.iloc[i]
@@ -175,12 +195,17 @@ class BDQTrainer(AbstractTrainer):
             params = obs[['parallelism', 'concurrency']]
             action = [convert_to_action(p, self.params_to_actions) for p in params]
 
-            next_obs = df.iloc[i + 1]
-            reward = ArslanReward.compare(current_row['utility'], next_obs['utility'])
+            next_row = df.iloc[i + 1]
+            next_obs = next_row[self.obs_cols]
+
+            if self.use_ratio:
+                reward = RatioReward.construct(obs)
+            else:
+                reward = ArslanReward.compare(current_row['utility'], next_row['utility'], pos_rew=300, neg_rew=-600)
             terminated = False
 
             norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
-            norm_next_obs = (next_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
+            norm_next_obs = (next_obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
 
             # norm_obs = obs
             # norm_next_obs = next_obs
@@ -189,7 +214,7 @@ class BDQTrainer(AbstractTrainer):
 
         print("Finished Warming Buffer: size=", self.replay_buffer.size)
 
-    def train(self, max_episodes=5, launch_job=False):
+    def train(self, max_episodes=1000, launch_job=False):
         self.training_flag = True
 
         episode_rewards = []
@@ -206,23 +231,34 @@ class BDQTrainer(AbstractTrainer):
         stds = self.stats.loc['std']
 
         ts = 0
+        reward_type = 'arslan'
+        if self.use_ratio:
+            reward_type = 'ratio'
+        
         for episode in range(max_episodes):
             episode_reward = 0
             terminated = False
+
+            print("BDQTrainer.train(): starting episode", episode+1)
+
+            if enable_tensorboard:
+                start_stamp = time.time()
             while not terminated:
+                time.sleep(5)
                 actions = self.agent.select_action(np.array(obs))
                 # action = np.clip(action, 1, 32)
                 params = [self.actions_to_params[a] for a in actions]
 
-                new_obs, reward, terminated, truncated, info = self.env.step(params)
+                new_obs, reward, terminated, truncated, info = self.env.step(params, reward_type=reward_type)
                 ts += 1
 
-                # norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / \
-                #            (stds[self.obs_cols].to_numpy() + 1e-4)
-                # norm_next_obs = (new_obs.to_numpy() - means.to_numpy()) / (stds.to_numpy() + 1e-3)
+                norm_obs = (obs - means[self.obs_cols].to_numpy()) / \
+                           (stds[self.obs_cols].to_numpy() + 1e-4)
+                norm_next_obs = (new_obs - means[self.obs_cols].to_numpy()) / \
+                    (stds[self.obs_cols].to_numpy() + 1e-3)
 
-                norm_obs = obs
-                norm_next_obs = new_obs
+                # norm_obs = obs
+                # norm_next_obs = new_obs
 
                 self.replay_buffer.add(norm_obs, actions, norm_next_obs, reward, terminated)
                 obs = new_obs
@@ -231,16 +267,29 @@ class BDQTrainer(AbstractTrainer):
                     self.agent.train(replay_buffer=self.replay_buffer, batch_size=self.batch_size)
 
                 episode_reward += reward
-                if terminated:
+
+            if terminated:
+                if enable_tensorboard:
+                    time_elapsed = time.time() - start_stamp
+                    writer.add_scalar("Train/ep_reward", episode_reward, episode)
+                    writer.add_scalar("Train/job_time", time_elapsed, episode)
+                    
+                if (episode+1) < max_episodes:
                     obs = self.env.reset(options={'launch_job': True})[0]
                     obs = np.asarray(a=obs, dtype=numpy.float64)
-                    print("Episode reward: {}", episode_reward)
-                    episode_rewards.append(episode_reward)
+
+                print("Episode reward: {}", episode_reward)
+                episode_rewards.append(episode_reward)
 
         self.training_flag = False
         self.agent.save_checkpoint("influx_gym_env")
         self.env.render(mode="graph")
         self.training_flag = False
+        print("BDQTrainer.train(): THREAD EXITING")
+
+        if enable_tensorboard:
+            writer.flush()
+            writer.close()
         return episode_rewards
 
     def evaluate(self):
@@ -305,7 +354,6 @@ class DDPGTrainer(AbstractTrainer):
 
         for i in range(df.shape[0] - 1):
             current_row = df.iloc[i]
-
             obs = current_row[self.obs_cols]
             action = obs[['parallelism', 'concurrency']]
             next_obs = df.iloc[i + 1]
@@ -325,7 +373,7 @@ class DDPGTrainer(AbstractTrainer):
 
             terminated = False
             if 'jobId' in current_row and 'jobId' and next_obs:
-                if current_row['jobId'] != next_obs['jobId']:
+                if current_row['jobId'] != next_obs['jobId'] and next_obs['jobId'] != 0:
                     terminated = True
 
             self.replay_buffer.add(obs, action, next_obs, reward, False)
@@ -365,7 +413,9 @@ class DDPGTrainer(AbstractTrainer):
                     self.agent.train(replay_buffer=self.replay_buffer, batch_size=batch_size)
 
                 episode_reward += reward
-                if terminated:
+
+            if terminated:
+                if (episode+1) < max_episodes:
                     obs = self.env.reset(options={'launch_job': True})[0]
                     obs = np.asarray(a=obs, dtype=numpy.float64)
                     print("Episode reward: {}", episode_reward)
