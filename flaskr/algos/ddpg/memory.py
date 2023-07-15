@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import os
 
 
 class ReplayBuffer(object):
@@ -23,6 +24,7 @@ class ReplayBuffer(object):
         self.not_done[self.ptr] = 1. - done
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
+        print("Replay Buffer Size: ", self.size)
 
     def sample(self, batch_size):
         ind = np.random.randint(0, self.size, size=batch_size)
@@ -33,3 +35,18 @@ class ReplayBuffer(object):
             torch.FloatTensor(self.reward[ind]).to(self.device),
             torch.FloatTensor(self.not_done[ind]).to(self.device)
         )
+
+    def save(self, folder_name='replay_buffer'):
+        """
+        Save the replay buffer
+        """
+        if not os.path.isdir(folder_name):
+            os.mkdir(folder_name)
+
+        np.save(folder_name + '/states.', self.state)
+        np.save(folder_name + '/actions.npy', self.action)
+        np.save(folder_name + '/rewards.npy', self.reward)
+        np.save(folder_name + '/next_states.npy', self.next_state)
+        np.save(folder_name + '/dones.npy', self.not_done)
+
+

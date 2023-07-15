@@ -103,8 +103,7 @@ def create_optimizer():
         print(json_dict)
         create_opt = CreateOptimizerRequest(json_dict['nodeId'], json_dict['maxConcurrency'],
                                             json_dict['maxParallelism'], json_dict['maxPipelining'],
-                                            json_dict['maxChunkSize'], json_dict['optimizerType'],
-                                            json_dict['fileCount'], json_dict['jobId'])
+                                            json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'], json_dict['jobId'], json_dict['dbType'])
         print(create_opt.__str__())
         if 'launch_job' in json_dict:
             create_opt.set_launch_job(json_dict['launch_job'])
@@ -155,8 +154,8 @@ def delete_optimizer():
         delete_op = DeleteOptimizerRequest(jd['nodeId'])
         if optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.bo:
             optim_map.delete_optimizer(delete_op)
-        elif optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.ddpg:
-            optim_map.delete_optimizer(delete_op, args)
+        # elif optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.ddpg:
+        #     optim_map.delete_optimizer(delete_op, args)
         elif optim_map.node_id_to_optimizer[delete_op.node_id] == optim_map.vda2c:
             print(delete_op.__str__())
             global epsilon

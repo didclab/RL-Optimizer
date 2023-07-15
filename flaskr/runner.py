@@ -5,10 +5,11 @@ import torch
 import numpy as np
 import os
 import time
-from torch.utils.tensorboard import SummaryWriter
 
+from torch.utils.tensorboard import SummaryWriter
+from .ods_env import env_utils
 from .ods_env import ods_influx_gym_env
-from .ods_env.ods_rewards import ArslanReward, RatioReward
+from .ods_env.ods_rewards import ArslanReward, RatioReward, JacobReward
 
 from flaskr import classes
 
@@ -309,25 +310,33 @@ class BDQTrainer(AbstractTrainer):
 class DDPGTrainer(AbstractTrainer):
     def __init__(self, create_opt_request=classes.CreateOptimizerRequest, max_episodes=100, batch_size=64,
                  update_policy_time_steps=20):
-        self.obs_cols = ['active_core_count', 'allocatedMemory',
-                         'bytes_recv', 'bytes_sent', 'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
-                         'dropin', 'dropout', 'errin', 'errout', 'freeMemory', 'maxMemory', 'memory',
-                         'packet_loss_rate', 'packets_recv',
-                         'packets_sent', 'bytesDownloaded', 'bytesUploaded', 'chunkSize', 'concurrency',
+        # self.obs_cols = ['active_core_count', 'allocatedMemory',
+        #                  'bytes_recv', 'bytes_sent', 'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
+        #                  'dropin', 'dropout', 'errin', 'errout', 'freeMemory', 'maxMemory', 'memory',
+        #                  'packet_loss_rate', 'packets_recv',
+        #                  'packets_sent', 'bytesDownloaded', 'bytesUploaded', 'chunkSize', 'concurrency',
+        #                  'destination_latency', 'destination_rtt',
+        #                  'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt',
+        #                  'write_throughput']
+        self.obs_cols = ['active_core_count',
+                         'dropin', 'dropout', 'packets_recv', 'packets_sent', 'chunkSize', 'concurrency',
                          'destination_latency', 'destination_rtt',
-                         'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt',
+                        'parallelism', 'read_throughput', 'source_latency', 'source_rtt',
                          'write_throughput']
+
         self.device = torch.device('mps' if torch.cuda.is_available() else 'cpu')
         self.create_opt_request = create_opt_request  # this gets updated every call
-        self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-1d",
+        self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-30d",
                                                 observation_columns=self.obs_cols)
         state_dim = self.env.observation_space.shape[0]
         action_dim = self.env.action_space.shape[0]
         self.agent = ddpg_agents.DDPGAgent(
-            state_dim=state_dim, action_dim=action_dim, device=self.device, max_action=None
+            state_dim=state_dim, action_dim=action_dim, device=self.device,
+            max_action=self.create_opt_request.max_concurrency
         )
 
         self.replay_buffer = memory.ReplayBuffer(state_dimension=state_dim, action_dimension=action_dim)
+        self.env.set_buffer(self.replay_buffer)
         self.warm_buffer()
         self.save_file_name = f"DDPG_{'influx_gym_env'}"
         try:
@@ -336,55 +345,72 @@ class DDPGTrainer(AbstractTrainer):
             pass
         self.training_flag = False
 
-    # Lets say we select the past 10 jobs worth of data what happens?
     def warm_buffer(self):
-        print("warming buffer")
-        df = self.env.influx_client.query_space(time_window="-1d")
+        print("Starting to warm the DDPG buffer")
+
+        df = self.env.space_df
+        # df = df.loc[(df != 0).any(1)]
         df = df[self.obs_cols]
-        df.drop_duplicates(inplace=True)
-        df.dropna(inplace=True)
+
         for i in range(df.shape[0] - 1):
             current_row = df.iloc[i]
             obs = current_row[self.obs_cols]
-            action = obs[['concurrency', 'parallelism']]
+            action = obs[['parallelism', 'concurrency']]
             next_obs = df.iloc[i + 1]
-            if next_obs['write_throughput'] < next_obs['read_throughput']:
-                thrpt = next_obs['write_throughput']
-                rtt = next_obs['destination_rtt']
-            else:
-                thrpt = next_obs['read_throughput']
-                rtt = next_obs['source_rtt']
-            reward = rtt * thrpt
-            terminated = False
-            self.replay_buffer.add(obs, action, next_obs, reward, terminated)
-        print("Finished Warming Buffer: size=", self.replay_buffer.size)
+            thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=current_row)
+            reward_params = JacobReward.Params(
+                throughput=thrpt,
+                rtt=rtt,
+                c=current_row['concurrency'],
+                max_cc=self.create_opt_request.max_concurrency,
+                p=current_row['parallelism'],
+                max_p=self.create_opt_request.max_parallelism,
+                # max_cpu_freq=current_row['cpu_frequency_max'],
+                # min_cpu_freq=current_row['cpu_frequency_min'],
+                # cpu_freq=current_row['cpu_frequency_current']
+            )
+            reward = JacobReward.calculate(reward_params)
 
-    def train(self, max_episodes=2, batch_size=100, launch_job=False):
+            terminated = False
+            if 'jobId' in current_row and 'jobId' and next_obs:
+                if current_row['jobId'] != next_obs['jobId'] and next_obs['jobId'] != 0:
+                    terminated = True
+
+            self.replay_buffer.add(obs, action, next_obs, reward, False)
+
+    def train(self, max_episodes=1000, batch_size=32):
         self.training_flag = True
         episode_rewards = []
-        lj = launch_job
-        options = {'launch_job': lj}
+        options = {'launch_job': False}
         print("Before the first env reset()")
         obs = self.env.reset(options=options)[0]  # gurantees job is running
-        print("State in train(): ", obs, "\t", "type: ", type(obs))
         obs = np.asarray(a=obs, dtype=numpy.float64)
-        lj = False  # previous line launched a job
-        # episode = 1 transfer job
         ts = 0
         for episode in range(max_episodes):
             episode_reward = 0
             terminated = False
             while not terminated:
-                action = (self.agent.select_action(np.array(obs)))
+                if self.replay_buffer.size < 1e3:
+                    action = self.env.action_space.sample()
+                    print("Sampled action space: buffer size:", self.replay_buffer.size)
+                else:
+                    action = (self.agent.select_action(np.array(obs)))
+                    print("Raw agent action", action)
                 action = np.rint(action)
-                action = np.clip(action, 1, 32)
-                new_obs, reward, terminated, truncated, info = self.env.step(action)
+                # action = np.clip(action, 1, 32)
+
+                new_obs, reward, terminated, truncated, info = self.env.step(action, reward_type='jacob')
                 ts += 1
                 self.replay_buffer.add(obs, action, new_obs, reward, terminated)
+                # print("Obs: ", obs)
+                print("Action:", action)
+                print("Terminated: ", terminated)
+                print("Reward: ", reward)
+                # print("Next Obs: ", new_obs)
+
                 obs = new_obs
-                if self.replay_buffer.size > batch_size:
-                    if ts % 10 == 0:
-                        self.agent.train(replay_buffer=self.replay_buffer, batch_size=batch_size)
+                if self.replay_buffer.size > batch_size and ts % 10 == 0:
+                    self.agent.train(replay_buffer=self.replay_buffer, batch_size=batch_size)
 
                 episode_reward += reward
 
@@ -392,13 +418,14 @@ class DDPGTrainer(AbstractTrainer):
                 if (episode+1) < max_episodes:
                     obs = self.env.reset(options={'launch_job': True})[0]
                     obs = np.asarray(a=obs, dtype=numpy.float64)
+                    print("Episode reward: {}", episode_reward)
+                    episode_rewards.append(episode_reward)
+                time.sleep(1)
 
-                print("Episode reward: {}", episode_reward)
-                episode_rewards.append(episode_reward)
+            if episode % 1 == 0:
+                self.agent.save_checkpoint("ddpg_influx_gym")
+                print("Episode ", episode, " has average reward of: ", np.mean(episode_rewards))
 
-        self.training_flag = False
-        self.agent.save_checkpoint("influx_gym_env")
-        self.env.render(mode="graph")
         self.training_flag = False
         return episode_rewards
 
@@ -412,6 +439,7 @@ class DDPGTrainer(AbstractTrainer):
         self.create_opt_request = create_opt_req
         self.env.create_opt_request = create_opt_req
         self.env.job_id = create_opt_req.job_id
+        self.env.reset()
 
     def close(self):
         self.env.close()
