@@ -7,12 +7,15 @@ class GeneratorNet(nn.Module):
         super(GeneratorNet, self).__init__()
         self.main = nn.Sequential(
             nn.Linear(state_dimension, 128),
-            nn.Tanh(),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.Linear(128, 256),
-            nn.Tanh(),
-            nn.Linear(256, 128),
-            nn.Tanh(),
-            nn.Linear(128, state_dimension)
+            nn.BatchNorm1d(256, 0.8),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(256, 512),
+            nn.BatchNorm1d(512, 0.8),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(512, state_dimension),
+            nn.Tanh()
         )
 
     def forward(self, x):
@@ -23,15 +26,15 @@ class DiscriminatorNet(nn.Module):
     def __init__(self, state_dimension):
         super(DiscriminatorNet, self).__init__()
         self.main = nn.Sequential(
-            nn.Linear(state_dimension, 15),
-            nn.Tanh(),
-            nn.Linear(15, 10),
-            nn.Tanh(),
-            nn.Linear(10, 5),
-            nn.Tanh(),
-            nn.Linear(5, 3),
-            nn.Tanh(),
-            nn.Linear(3, 1),
+            nn.Linear(state_dimension, 1024),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(1024, 512),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(512, 256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(256, 128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(128, 1),
             nn.Sigmoid()
         )
 

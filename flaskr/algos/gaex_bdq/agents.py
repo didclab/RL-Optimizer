@@ -63,18 +63,21 @@ class GAEXAgent(AbstractAgent, object):
         for i in range(self.num_actions):
             self.optimizer_advs.append(optim.Adam(self.adv_nets[i].parameters(), lr=1e-3))
 
-        self.optimizer_disc = optim.Adam(self.discriminate_net.parameters(), lr=1e-3, betas=(0.5, 0.999))
-        self.optimizer_gen = optim.Adam(self.generate_net.parameters(), lr=1e-3, betas=(0.5, 0.999))
+        self.optimizer_disc = optim.Adam(self.discriminate_net.parameters(), lr=1e-4, betas=(0.5, 0.999))
+        self.optimizer_gen = optim.Adam(self.generate_net.parameters(), lr=1e-4, betas=(0.5, 0.999))
 
         self.epsilon = 1.
-        self.gan_update_freq = 25
+        self.gan_update_freq = 100
         self.step_count = 0
         # rated for 2000 episodes
         self.decay = decay
         # for intrinsic reward
-        self.beta = 30.
+        self.beta = 20.
         self.nz = state_dim
         self.criterion = nn.BCELoss()
+
+        self.G_loss = []
+        self.D_loss = []
 
     def update_epsilon(self):
         self.epsilon = max(0.005, self.epsilon * self.decay)
@@ -195,21 +198,25 @@ class GAEXAgent(AbstractAgent, object):
         return loss, q_values_actual, all_target
 
     def compute_intrinsic_reward(self, prob_visited: torch.Tensor) -> torch.Tensor:
-        i_reward = self.beta * torch.square((1 - prob_visited))
+        # i_reward = self.beta * torch.square((1 - prob_visited))
+        i_reward = self.beta * torch.pow((1 - prob_visited), 2)
         return i_reward.detach()
 
     def update_disc_gen(self, batch_size, prob_visited):
+        # print("updating GAN")
         real_label = 1.
         fake_label = 0.
         """
         First update theta_D
         """
+        self.optimizer_disc.zero_grad()
         label = torch.full((batch_size,), real_label, dtype=torch.float, device=self.device)
         output = prob_visited.view(-1)
         D_real = self.criterion(output, label)
         D_real.backward()
 
         noise = torch.randn(batch_size, self.nz, device=self.device)
+        self.optimizer_gen.zero_grad()
         fake = self.generate_net(noise)
         label.fill_(fake_label)
 
@@ -228,15 +235,27 @@ class GAEXAgent(AbstractAgent, object):
         G_err.backward()
         self.optimizer_gen.step()
 
+        self.D_loss.append((D_fake + D_real).item())
+        self.G_loss.append(G_err.item())
+
     def train(self, replay_buffer, batch_size=64):
         state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
 
-        if self.step_count % self.gan_update_freq == 0:
-            self.discriminate_net.zero_grad()
-            self.generate_net.zero_grad()
-
+        if self.step_count == 0:
+            self.optimizer_disc.zero_grad()
         prob_visited = self.discriminate_net(next_state)
         i_reward = self.compute_intrinsic_reward(prob_visited.detach())
+        
+        if self.step_count == 23:
+            prob_stats = np.array([prob_visited.min().item(), prob_visited.max().item(), prob_visited.mean().item()])
+            intrin_stats = np.array([i_reward.min().item(), i_reward.max().item(), i_reward.mean().item()])
+
+            prob_stats = np.round(prob_stats, decimals=2)
+            intrin_stats = np.round(intrin_stats, decimals=2)
+            
+            print("[prob_visited] Min:", prob_stats[0], "| Max:", prob_stats[1], "| Mean:", prob_stats[2])
+            print("[i_reward] Min:", intrin_stats[0], "| Max:", intrin_stats[1], "| Mean:", intrin_stats[2])
+            print()
 
         loss, _, _ = self.compute_target_loss(state, next_state, action, reward + i_reward, not_done)
 
@@ -258,7 +277,7 @@ class GAEXAgent(AbstractAgent, object):
         for i in range(self.num_actions):
             GAEXAgent.soft_update(self.adv_targets[i], self.adv_nets[i], self.tau)
 
-        if self.step_count % self.gan_update_freq == 0:
+        if self.step_count == 0:
             self.update_disc_gen(batch_size, prob_visited)
 
         if self.step_count < self.gan_update_freq:

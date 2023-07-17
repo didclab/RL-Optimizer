@@ -16,11 +16,12 @@ class Actor(torch.nn.Module):
         # a = F.relu(self.input_dim(batch_state))
         a = F.relu(self.l1(batch_state))
         a = F.relu(self.l2(a))
-        a = F.relu(self.l3(a))
-        a = torch.sigmoid(a)  # Apply sigmoid activation
-        scaled_output = (self.max_action - 1) * a + 1  # Scale and shift the output
-        return scaled_output
-        # return torch.tanh(self.l3(a))
+        # a = F.relu(self.l3(a))
+        # a = torch.sigmoid(a)  # Apply sigmoid activation
+        a = torch.tanh(self.l3(a))
+        # scaled_output = (self.max_action - 1) * a + 1  # Scale and shift the output
+        # return scaled_output
+        return a
 
 
 class Critic(torch.nn.Module):

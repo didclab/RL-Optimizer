@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from .models import Actor, Critic
+# from models import Actor, Critic
 
 
 #
@@ -17,10 +18,12 @@ class DDPGAgent(object):
         self.tau = tau
         self.actor = Actor(state_dim, action_dim, max_action).to(device)
         self.actor_target = deepcopy(self.actor).to(self.device)
-        self.actor_optimizer = torch.optim.Adagrad(self.actor.parameters(), lr=.001)
+        # self.actor_optimizer = torch.optim.Adagrad(self.actor.parameters(), lr=.001)
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters())
         self.critic = Critic(state_dim, action_dim).to(device)
         self.critic_target = deepcopy(self.critic).to(self.device)
-        self.critic_optimizer = torch.optim.Adagrad(self.critic.parameters())
+        # self.critic_optimizer = torch.optim.Adagrad(self.critic.parameters())
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters())
 
     def select_action(self, state):
         state = torch.FloatTensor(state.reshape(1, -1)).to(self.device)

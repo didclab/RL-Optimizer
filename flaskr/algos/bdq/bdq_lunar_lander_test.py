@@ -4,9 +4,10 @@ from algos.global_memory import ReplayBuffer
 import torch
 # from algos.global_utils import evaluate_policy
 import numpy as np
+from tqdm import tqdm
 
 BATCH_SIZE = 64
-MAX_STEPS = 999
+MAX_STEPS = 5000
 ENV_NAME="LunarLander-v2"
 # ENV_NAME = "MountainCar-v0"
 # ENV_NAME = "CartPole-v1"
@@ -28,6 +29,8 @@ if __name__ == "__main__":
     episodes = 2000
     state = env.reset()[0]
     # env.render()
+
+    enable_logging = True
     
     for _ in range(BATCH_SIZE):
         state = env.reset()[0]
@@ -41,7 +44,16 @@ if __name__ == "__main__":
             replay_buffer.add(state, action, next_state, reward, terminated or truncated)
             state = next_state
 
-    for episode in range(episodes):
+    if enable_logging:
+        from torch.utils.tensorboard import SummaryWriter
+        writer = SummaryWriter('./logs/' + ENV_NAME + '/')
+        
+    try:
+        os.mkdir('./models')
+    except Exception as e:
+        pass
+    
+    for episode in tqdm(range(episodes), unit='eps'):
         episode_reward = 0
         state = env.reset()[0]
         terminated = False
@@ -66,9 +78,13 @@ if __name__ == "__main__":
             episode_reward += reward
             if terminated or truncated:
                 episode_rewards.append(episode_reward)
-                print("Episode: ", episode, " reward=", episode_reward)
-            if np.mean(episode_rewards[-10:]) > 195:
-                break
+                # print("Episode: ", episode, " reward=", episode_reward)
+                if enable_logging:
+                    writer.add_scalar('Episode Reward', episode_reward, episode)
+                
+
+        if np.mean(episode_rewards[-10:]) > 195:
+            break
 
         agent.update_epsilon()
         # print(eps_actions)
