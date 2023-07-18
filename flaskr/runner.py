@@ -386,6 +386,11 @@ class DDPGTrainer(AbstractTrainer):
         obs = self.env.reset(options=options)[0]  # gurantees job is running
         obs = np.asarray(a=obs, dtype=numpy.float64)
         ts = 0
+
+        action_dim = self.env.action_space.shape[0]
+        dist_width = 0.1
+        max_action=self.create_opt_request.max_concurrency
+        
         for episode in range(max_episodes):
             episode_reward = 0
             terminated = False
@@ -394,12 +399,17 @@ class DDPGTrainer(AbstractTrainer):
                     action = self.env.action_space.sample()
                     print("Sampled action space: buffer size:", self.replay_buffer.size)
                 else:
-                    action = (self.agent.select_action(np.array(obs)))
+                    action = (
+                        self.agent.select_action(np.array(obs)) +
+                        np.random.normal(0, dist_width, size=action_dim)
+                    ).clip(-1, 1)
                     print("Raw agent action", action)
-                action = np.rint(action)
+
+                env_action = (action + 1) * max_action
+                env_action = np.rint(env_action)
                 # action = np.clip(action, 1, 32)
 
-                new_obs, reward, terminated, truncated, info = self.env.step(action, reward_type='jacob')
+                new_obs, reward, terminated, truncated, info = self.env.step(env_action, reward_type='jacob')
                 ts += 1
                 self.replay_buffer.add(obs, action, new_obs, reward, terminated)
                 # print("Obs: ", obs)

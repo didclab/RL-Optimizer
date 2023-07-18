@@ -54,7 +54,7 @@ class InfluxEnv(gym.Env):
         if action_space_discrete:
             self.action_space = spaces.Discrete(3)  # drop stay increase
         else:
-            self.action_space = spaces.Box(low=1, high=32, shape=(2,))  # for now cc, p only
+            self.action_space = spaces.Box(low=-1, high=1, shape=(2,))  # for now cc, p only
         # So this is probably not defined totally properly as I assume dimensions are 0-infinity
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),))
         self.past_rewards = []
