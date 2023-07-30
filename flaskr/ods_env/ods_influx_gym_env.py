@@ -78,19 +78,42 @@ class InfluxEnv(gym.Env):
 
     def step(self, action: list, reward_type=None):
         print("Step: action:", action)
-        df = self.influx_client.query_space("-2m")
-        self.space_df = pd.concat([self.space_df, df])
-        last_row = self.space_df.tail(n=1)
-        observation = last_row[self.data_columns]
-        if self.create_opt_request.db_type == "hsql":
-            terminated, _ = oh.query_if_job_done_direct(self.job_id)
-        else:
-            terminated, _ = oh.query_if_job_done(self.job_id)
+        # df = self.influx_client.query_space("-2m")
+        # self.space_df = pd.concat([self.space_df, df])
+        # last_row = self.space_df.tail(n=1)
+        # observation = last_row[self.data_columns]
+        # if self.create_opt_request.db_type == "hsql":
+        #     terminated, _ = oh.query_if_job_done_direct(self.job_id)
+        # else:
+        #     terminated, _ = oh.query_if_job_done(self.job_id)
 
-        if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
-            1] > self.create_opt_request.max_parallelism:
-            reward = action[0] * action[1]
-            return observation, reward, terminated, None, None
+        # if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
+        #     1] > self.create_opt_request.max_parallelism:
+        #     reward = action[0] * action[1]
+        #     return observation, reward, terminated, None, None
+
+        conc_nan = True
+        para_nan = True
+
+        while conc_nan or para_nan:
+            df = self.influx_client.query_space("-2m")
+            self.space_df = pd.concat([self.space_df, df])
+            last_row = self.space_df.tail(n=1)
+            observation = last_row[self.data_columns]
+            if self.create_opt_request.db_type == "hsql":
+                terminated, _ = oh.query_if_job_done_direct(self.job_id)
+            else:
+                terminated, _ = oh.query_if_job_done(self.job_id)
+
+            if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
+                    1] > self.create_opt_request.max_parallelism:
+                reward = action[0] * action[1]
+                return observation, reward, terminated, None, None
+
+            conc_nan = last_row['concurrency'].isna().any()
+            para_nan = last_row['parallelism'].isna().any()
+            time.sleep(3)
+            
 
         # submit action to take with TS
         if int(last_row['concurrency'].iloc[0]) != action[0] or int(last_row['parallelism'].iloc[0]) != action[1]:
@@ -117,12 +140,12 @@ class InfluxEnv(gym.Env):
                 obs_action = obs[['parallelism', 'concurrency']]
                 next_obs = df.iloc[i + 1][self.data_columns]
                 thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=current_row)
-                diff_drop_in = current_row['dropin'].iloc[-1] - self.drop_in
+                diff_drop_in = current_row['dropin'] - self.drop_in
 
                 if reward_type == 'ratio':
                     reward_params = RatioReward.Params(
                         read_throughput=obs.read_throughput,
-                        write_throughput=obs.write_throughput
+                        write_throughput=600.
                     )
                     reward = RatioReward.calculate(reward_params)
 
@@ -131,8 +154,8 @@ class InfluxEnv(gym.Env):
                         penalty=diff_drop_in,
                         throughput=thrpt,
                         past_utility=self.past_utility,
-                        concurrency=obs['concurrency'].iloc[-1],
-                        parallelism=obs['parallelism'].iloc[-1],
+                        concurrency=obs['concurrency'],
+                        parallelism=obs['parallelism'],
                         bwidth=0.1,
                         pos_thresh=300,
                         neg_thresh=-600
@@ -154,7 +177,7 @@ class InfluxEnv(gym.Env):
                         # cpu_freq=current_row['cpu_frequency_current']
                     )
                     reward = JacobReward.calculate(reward_params)
-                print("Intermediate Step reward: ", reward)
+                # print("Intermediate Step reward: ", reward)
                 if self.replay_buffer is not None:
                     self.replay_buffer.add(obs, action, next_obs, reward, terminated)
 
@@ -179,7 +202,7 @@ class InfluxEnv(gym.Env):
             else:
                 terminated, _ = oh.query_if_job_done(self.job_id)
 
-            if count >= 2 or terminated: break
+            if count >= 1 or terminated: break
             time.sleep(3)
 
         if terminated:

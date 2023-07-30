@@ -88,14 +88,15 @@ class ArslanReward(AbstractReward):
             self.total_threads = parallelism * concurrency
 
     @staticmethod
-    def construct(x, penalty='diff_dropin', K=1.0072, b=0.02):
+    def construct(x, penalty='diff_dropin', K=1.0072, b=0.02, bwidth=1.):
+        s = 1 / bwidth
         t = np.minimum(x.read_throughput, x.write_throughput)
         p = x.parallelism.to_numpy()
         cc = x.concurrency.to_numpy()
 
         pen = x[penalty].to_numpy()
 
-        return (t / np.power(K, p * cc)) - (b * t * pen)
+        return (s * t / np.power(K, p * cc)) - (s * b * t * pen)
 
     @staticmethod
     def compare(past_utility, utility, pos_rew=1., neg_rew=-1., pos_thresh=100, neg_thresh=-100):
@@ -140,8 +141,8 @@ class RatioReward(AbstractReward):
     @staticmethod
     def calculate(params: Params):
         if params.r_w:
-            reward = params.read_throughput.to_numpy() / (params.write_throughput.to_numpy() + 1e-5)
-            return reward[0]
+            reward = params.read_throughput / (params.write_throughput + 1e-5)
+            return reward
         else:
-            reward = params.write_throughput.to_numpy() / (params.read_throughput.to_numpy() + 1e-5)
-            return reward[0]
+            reward = params.write_throughput / (params.read_throughput + 1e-5)
+            return reward

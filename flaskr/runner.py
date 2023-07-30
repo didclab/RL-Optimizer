@@ -9,6 +9,7 @@ import time
 from torch.utils.tensorboard import SummaryWriter
 from .ods_env import env_utils
 from .ods_env import ods_influx_gym_env
+from .ods_env import ods_pid_env
 from .ods_env.ods_rewards import ArslanReward, RatioReward, JacobReward
 
 from flaskr import classes
@@ -25,7 +26,7 @@ from abc import ABC, abstractmethod
 
 enable_tensorboard = os.getenv("ENABLE_TENSORBOARD", default='False').lower() in ('true', '1', 't')
 if enable_tensorboard:
-    writer = SummaryWriter()
+    writer = SummaryWriter('./runs/train_bdq3/')
 
 class AbstractTrainer(ABC):
     def warm_buffer(self):
@@ -133,9 +134,20 @@ class BDQTrainer(AbstractTrainer):
                          'parallelism', 'pipelining', 'read_throughput', 'source_latency',
                          'source_rtt', 'write_throughput']
 
+        self.obs_cols_pid = ['parallelism', 'concurrency', 'err', 'err_sum', 'err_diff']
+
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-1d",
-                                                observation_columns=self.obs_cols)
+
+        self.use_pid_env = False
+
+        if self.use_pid_env:
+            self.obs_cols = self.obs_cols_pid
+            self.env = ods_pid_env.PIDEnv(create_opt_req=create_opt_request, time_window="-1d",
+                                          observation_columns=['parallelism', 'concurrency'], target_thput=819.)
+        else:
+            self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-1d",
+                                                    observation_columns=self.obs_cols)
+
         self.create_opt_request = create_opt_request
         state_dim = self.env.observation_space.shape[0]
         # 1, 2, 4, 8, 16, 32 = Discrete(6)
@@ -185,8 +197,8 @@ class BDQTrainer(AbstractTrainer):
         stds = self.stats.loc['std']
 
         # create utility column inplace
-        if not self.use_ratio:
-            df = df.assign(utility=lambda x: ArslanReward.construct(x, penalty='diff_dropin'))
+        if not self.use_ratio and not self.use_pid_env:
+            df = df.assign(utility=lambda x: ArslanReward.construct(x, penalty='diff_dropin', bwidth=0.1))
 
         for i in range(df.shape[0] - 1):
             current_row = df.iloc[i]
@@ -204,8 +216,12 @@ class BDQTrainer(AbstractTrainer):
                 reward = ArslanReward.compare(current_row['utility'], next_row['utility'], pos_rew=300, neg_rew=-600)
             terminated = False
 
-            norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
-            norm_next_obs = (next_obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
+            if self.use_pid_env:
+                norm_obs = obs
+                norm_next_obs = next_obs
+            else:
+                norm_obs = (obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
+                norm_next_obs = (next_obs.to_numpy() - means[self.obs_cols].to_numpy()) / (stds[self.obs_cols].to_numpy() + 1e-3)
 
             # norm_obs = obs
             # norm_next_obs = next_obs
@@ -245,17 +261,32 @@ class BDQTrainer(AbstractTrainer):
                 start_stamp = time.time()
             while not terminated:
                 time.sleep(5)
-                actions = self.agent.select_action(np.array(obs))
+
+                if self.use_pid_env:
+                    norm_obs = obs
+                else:
+                    norm_obs = (obs - means[self.obs_cols].to_numpy()) / \
+                        (stds[self.obs_cols].to_numpy() + 1e-4)
+
+                obs_np = np.array(norm_obs)
+                print("[Normalized Obs]", obs_np)
+
+                if self.replay_buffer.size <= 1e2:
+                    actions = [self.env.action_space.sample(), self.env.action_space.sample()]
+                    print("[Replay Buffer Size]", self.replay_buffer.size)
+                else:
+                    actions = self.agent.select_action(obs_np)
                 # action = np.clip(action, 1, 32)
                 params = [self.actions_to_params[a] for a in actions]
 
                 new_obs, reward, terminated, truncated, info = self.env.step(params, reward_type=reward_type)
                 ts += 1
-
-                norm_obs = (obs - means[self.obs_cols].to_numpy()) / \
-                           (stds[self.obs_cols].to_numpy() + 1e-4)
-                norm_next_obs = (new_obs - means[self.obs_cols].to_numpy()) / \
-                    (stds[self.obs_cols].to_numpy() + 1e-3)
+                
+                if self.use_pid_env:
+                    norm_next_obs = new_obs
+                else:
+                    norm_next_obs = (new_obs - means[self.obs_cols].to_numpy()) / \
+                        (stds[self.obs_cols].to_numpy() + 1e-3)
 
                 # norm_obs = obs
                 # norm_next_obs = new_obs
@@ -263,7 +294,7 @@ class BDQTrainer(AbstractTrainer):
                 self.replay_buffer.add(norm_obs, actions, norm_next_obs, reward, terminated)
                 obs = new_obs
 
-                if self.replay_buffer.size > self.batch_size:
+                if self.replay_buffer.size > 1e2:
                     self.agent.train(replay_buffer=self.replay_buffer, batch_size=self.batch_size)
 
                 episode_reward += reward
@@ -280,6 +311,10 @@ class BDQTrainer(AbstractTrainer):
 
                 print("Episode reward: {}", episode_reward)
                 episode_rewards.append(episode_reward)
+
+                if self.replay_buffer.size > 1e2:
+                    print("[Epsilon-Decay] Updating Epsilon")
+                    self.agent.update_epsilon()
 
         self.training_flag = False
         self.agent.save_checkpoint("influx_gym_env")
@@ -324,7 +359,7 @@ class DDPGTrainer(AbstractTrainer):
                         'parallelism', 'read_throughput', 'source_latency', 'source_rtt',
                          'write_throughput']
 
-        self.device = torch.device('mps' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.create_opt_request = create_opt_request  # this gets updated every call
         self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-30d",
                                                 observation_columns=self.obs_cols)
@@ -337,13 +372,23 @@ class DDPGTrainer(AbstractTrainer):
 
         self.replay_buffer = memory.ReplayBuffer(state_dimension=state_dim, action_dimension=action_dim)
         self.env.set_buffer(self.replay_buffer)
+
+        self.norm_data = load_clean_norm_dataset('data/benchmark_data.csv')
+        self.stats = self.norm_data.describe()
+        
         self.warm_buffer()
+        
         self.save_file_name = f"DDPG_{'influx_gym_env'}"
         try:
             os.mkdir('./models')
         except Exception as e:
             pass
         self.training_flag = False
+
+        if enable_tensorboard:
+            print("[INFO] DDPG: Tensorboard Enabled")
+        else:
+            print("[INFO] DDPG: Tensorboard Disabled")
 
     def warm_buffer(self):
         print("Starting to warm the DDPG buffer")
@@ -352,31 +397,40 @@ class DDPGTrainer(AbstractTrainer):
         # df = df.loc[(df != 0).any(1)]
         df = df[self.obs_cols]
 
+        means = self.stats.loc['mean']
+        stds = self.stats.loc['std']
+
         for i in range(df.shape[0] - 1):
             current_row = df.iloc[i]
             obs = current_row[self.obs_cols]
             action = obs[['parallelism', 'concurrency']]
             next_obs = df.iloc[i + 1]
             thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=current_row)
-            reward_params = JacobReward.Params(
-                throughput=thrpt,
-                rtt=rtt,
-                c=current_row['concurrency'],
-                max_cc=self.create_opt_request.max_concurrency,
-                p=current_row['parallelism'],
-                max_p=self.create_opt_request.max_parallelism,
-                # max_cpu_freq=current_row['cpu_frequency_max'],
-                # min_cpu_freq=current_row['cpu_frequency_min'],
-                # cpu_freq=current_row['cpu_frequency_current']
-            )
-            reward = JacobReward.calculate(reward_params)
+            # reward_params = JacobReward.Params(
+            #     throughput=thrpt,
+            #     rtt=rtt,
+            #     c=current_row['concurrency'],
+            #     max_cc=self.create_opt_request.max_concurrency,
+            #     p=current_row['parallelism'],
+            #     max_p=self.create_opt_request.max_parallelism,
+            #     # max_cpu_freq=current_row['cpu_frequency_max'],
+            #     # min_cpu_freq=current_row['cpu_frequency_min'],
+            #     # cpu_freq=current_row['cpu_frequency_current']
+            # )
+            # reward = JacobReward.calculate(reward_params)
+
+            reward = RatioReward.construct(obs)
+            norm_obs = (obs - means[self.obs_cols].to_numpy()) / \
+                           (stds[self.obs_cols].to_numpy() + 1e-3)
+            norm_next_obs = (next_obs - means[self.obs_cols].to_numpy()) / \
+                (stds[self.obs_cols].to_numpy() + 1e-3)
 
             terminated = False
             if 'jobId' in current_row and 'jobId' and next_obs:
                 if current_row['jobId'] != next_obs['jobId'] and next_obs['jobId'] != 0:
                     terminated = True
 
-            self.replay_buffer.add(obs, action, next_obs, reward, False)
+            self.replay_buffer.add(norm_obs, action, norm_next_obs, reward, False)
 
     def train(self, max_episodes=1000, batch_size=32):
         self.training_flag = True
@@ -390,14 +444,22 @@ class DDPGTrainer(AbstractTrainer):
         action_dim = self.env.action_space.shape[0]
         dist_width = 0.1
         max_action=self.create_opt_request.max_concurrency
+
+        means = self.stats.loc['mean']
+        stds = self.stats.loc['std']
+        stds = stds.where(stds > 0, other=10.)
         
         for episode in range(max_episodes):
             episode_reward = 0
             terminated = False
+
+            if enable_tensorboard:
+                start_stamp = time.time()
+            
             while not terminated:
                 if self.replay_buffer.size < 1e3:
                     action = self.env.action_space.sample()
-                    print("Sampled action space: buffer size:", self.replay_buffer.size)
+                    # print("Sampled action space: buffer size:", self.replay_buffer.size)
                 else:
                     action = (
                         self.agent.select_action(np.array(obs)) +
@@ -405,17 +467,23 @@ class DDPGTrainer(AbstractTrainer):
                     ).clip(-1, 1)
                     print("Raw agent action", action)
 
-                env_action = (action + 1) * max_action
+                env_action = np.maximum((action + 1) * 8, 1)
                 env_action = np.rint(env_action)
                 # action = np.clip(action, 1, 32)
 
-                new_obs, reward, terminated, truncated, info = self.env.step(env_action, reward_type='jacob')
+                new_obs, reward, terminated, truncated, info = self.env.step(env_action, reward_type='ratio')
+
+                norm_obs = (obs - means[self.obs_cols].to_numpy()) / \
+                    (stds[self.obs_cols].to_numpy() + 1e-3)
+                norm_new_obs = (new_obs - means[self.obs_cols].to_numpy()) / \
+                    (stds[self.obs_cols].to_numpy() + 1e-3)
+                
                 ts += 1
-                self.replay_buffer.add(obs, action, new_obs, reward, terminated)
+                self.replay_buffer.add(norm_obs, action, norm_new_obs, reward, terminated)
                 # print("Obs: ", obs)
-                print("Action:", action)
-                print("Terminated: ", terminated)
-                print("Reward: ", reward)
+                # print("Action:", action)
+                # print("Terminated: ", terminated)
+                # print("Reward: ", reward)
                 # print("Next Obs: ", new_obs)
 
                 obs = new_obs
@@ -425,6 +493,11 @@ class DDPGTrainer(AbstractTrainer):
                 episode_reward += reward
 
             if terminated:
+                if enable_tensorboard:
+                    time_elapsed = time.time() - start_stamp
+                    writer.add_scalar("Train/ep_reward", episode_reward, episode)
+                    writer.add_scalar("Train/job_time", time_elapsed, episode)
+                    
                 if (episode+1) < max_episodes:
                     obs = self.env.reset(options={'launch_job': True})[0]
                     obs = np.asarray(a=obs, dtype=numpy.float64)

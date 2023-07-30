@@ -10,7 +10,7 @@ from .classes import DeleteOptimizerRequest
 from .classes import InputOptimizerRequest
 from .env import *
 
-from torch.utils.tensorboard import SummaryWriter
+# from torch.utils.tensorboard import SummaryWriter
 
 
 args = get_args()
@@ -313,7 +313,7 @@ class Optimizer(object):
             override_max=override_max
         )
 
-        self.writer = SummaryWriter()
+        # self.writer = SummaryWriter()
         self.c = 0
         self.episode_c = 0
         self._eps_reward = 0.
