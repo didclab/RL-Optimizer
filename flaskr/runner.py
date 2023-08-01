@@ -5,11 +5,13 @@ import torch
 import numpy as np
 import os
 import time
+import json
 
 from torch.utils.tensorboard import SummaryWriter
 from .ods_env import env_utils
 from .ods_env import ods_influx_gym_env
 from .ods_env import ods_pid_env
+from .ods_env.gan_env import ConvGeneratorNet
 from .ods_env.ods_rewards import ArslanReward, RatioReward, JacobReward
 
 from flaskr import classes
@@ -23,6 +25,7 @@ from .algos.ddpg import utils
 from .ods_env.env_utils import smallest_throughput_rtt
 
 from abc import ABC, abstractmethod
+from tqdm import tqdm
 
 enable_tensorboard = os.getenv("ENABLE_TENSORBOARD", default='False').lower() in ('true', '1', 't')
 if enable_tensorboard:
@@ -47,6 +50,12 @@ class AbstractTrainer(ABC):
     @abstractmethod
     def close(self):
         pass
+
+    def parse_config(self, json_file="config/default.json"):
+        with open(json_file, 'r') as f:
+            configs = json.load(f)
+
+        return configs
 
 
 class Trainer(object):
@@ -122,7 +131,9 @@ def load_clean_norm_dataset(path: str) -> pandas.DataFrame:
 
 
 class BDQTrainer(AbstractTrainer):
-    def __init__(self, create_opt_request: classes.CreateOptimizerRequest, max_episodes=100, batch_size=64):
+    def __init__(self, create_opt_request: classes.CreateOptimizerRequest, max_episodes=100, batch_size=64, config_file='config/default.json'):
+        self.config = self.parse_config(config_file)
+        
         self.total_obs_cols = ['active_core_count', 'allocatedMemory',
                                'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
                                'dropin', 'dropout', 'packet_loss_rate', 'chunkSize', 'concurrency',
@@ -176,10 +187,12 @@ class BDQTrainer(AbstractTrainer):
 
         self.replay_buffer = ReplayBufferBDQ(state_dimension=state_dim, action_dimension=self.branches)
 
-        self.norm_data = load_clean_norm_dataset('data/benchmark_data.csv')
+        self.norm_data = load_clean_norm_dataset(self.config.data)
         self.stats = self.norm_data.describe()
 
         self.use_ratio = True
+        self.pretrain_mode = self.config.pretrain
+
         self.warm_buffer()
         self.save_file_name = f"BDQ_{'influx_gym_env'}"
         self.training_flag = False
@@ -190,7 +203,11 @@ class BDQTrainer(AbstractTrainer):
             print("[INFO] Tensorboard Disabled")
 
     def warm_buffer(self):
-        df = fetch_df(self.env, self.obs_cols)
+        if self.pretrain_mode:
+            # data = load_clean_norm_data('data/pivoted_data.csv')
+            df = self.norm_data
+        else:
+            df = fetch_df(self.env, self.obs_cols)
 
         # initialize stats here
         means = self.stats.loc['mean']
@@ -230,7 +247,70 @@ class BDQTrainer(AbstractTrainer):
 
         print("Finished Warming Buffer: size=", self.replay_buffer.size)
 
+
+    def rapid_pretrain(self, max_episodes=1000000):
+        """
+        The purpose of this function is to bypass the environment
+        entirely and to instead use a surrogate offline data or Generator
+        to rapidly generate (state, next_state) for the agent's replay
+        buffer or replace the replay buffer entirely.
+
+        This should allow for rapid prototyping and for the agent to
+        quickly learn or be pre-trained for a real network. This will
+        NOT interact with the real environment.
+
+        NOTE: Arslan's reward won't work here. Assumes rewards that
+        can be computed at any time.
+        """
+        self.training_flag = True
+
+        # print("Before surrogate used")
+        
+        # episode = 1 transfer job
+
+        # means = self.stats.loc['mean']
+        # stds = self.stats.loc['std']
+
+        ts = 0
+        # reward_type = 'arslan'
+        # if self.use_ratio:
+        #     reward_type = 'ratio'
+
+        """
+        Generator replaces the replay buffer. Generated entries need other
+        information filled in. In particular:
+        - Reward
+        - Done/Terminated/Truncated (for now, this is always false)
+        - Action (this must be de-normed and then discretized if needed)
+
+        This has been put on hold for now.
+        """
+
+        # gen = ConvGeneratorNet(100).double().to(device)
+        # gen.load_state_dict(torch.load('data/conv_generator_state_dict4-2.pth'))
+        
+        for it in tqdm(range(max_episodes), unit='it', total=max_episodes):
+            episode_reward = 0
+            terminated = False
+
+            # print("BDQTrainer.train(): starting episode", episode+1)
+            if self.replay_buffer.size > self.batch_size:
+                self.agent.train(replay_buffer=self.replay_buffer, batch_size=self.batch_size)
+
+        self.training_flag = False
+        self.agent.save_checkpoint("influx_gym_env")
+        self.training_flag = False
+        # print("BDQTrainer.train(): THREAD EXITING")
+
+        # if enable_tensorboard:
+        #     writer.flush()
+        #     writer.close()
+        return []
+        
     def train(self, max_episodes=1000, launch_job=False):
+        if self.pretrain_mode:
+            return self.rapid_pretrain()
+
         self.training_flag = True
 
         episode_rewards = []
