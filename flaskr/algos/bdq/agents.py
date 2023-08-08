@@ -69,6 +69,13 @@ class BDQAgent(AbstractAgent, object):
     def update_epsilon(self):
         self.epsilon = max(0.005, self.epsilon * self.decay)
 
+    def set_eval(self):
+        self.pre_net.eval()
+        self.state_net.eval()
+
+        for adv_net in self.adv_nets:
+            adv_net.eval()
+        
     def select_action(self, state):
         if np.random.random() <= self.epsilon:
             # needs to be improved but will do for now
@@ -215,8 +222,11 @@ class BDQAgent(AbstractAgent, object):
         for i in range(self.num_actions):
             torch.save(self.adv_nets[i].state_dict(),
                        filename + '_adv_net_' + str(i))
+            torch.save(self.optimizer_advs[i].state_dict(),
+                       filename + '_adv_optimizer_' + str(i))
 
-        torch.save(self.optimizer.state_dict(), filename + '_bdq_optimizer')
+        torch.save(self.optimizer_pre.state_dict(), filename + '_pre_optimizer')
+        torch.save(self.optimizer_state.state_dict(), filename + '_state_optimizer')
 
     def load_checkpoint(self, filename):
         device = self.device
@@ -246,11 +256,18 @@ class BDQAgent(AbstractAgent, object):
             adjusted_i = i + 2
             self.all_nets[adjusted_i].load_state_dict(
                 torch.load(
-                    filename + '_adv_net_' + i,
+                    filename + '_adv_net_' + str(i),
                     map_location=torch.device(device)
                 )
             )
             self.all_targets[adjusted_i] = deepcopy(self.all_nets[adjusted_i])
+
+            self.optimizer_advs[i].load_state_dict(
+                torch.load(
+                    filename + '_adv_optimizer_' + str(i),
+                    map_location=torch.device(device)
+                )
+            )
 
         self.adv_nets = self.all_nets[2:]
         self.adv_targets = self.all_nets[2:]
@@ -258,7 +275,21 @@ class BDQAgent(AbstractAgent, object):
         # load optimizer
         # prefer to reconstruct optimizer for now because of device shenanigans
         self.module_list = nn.ModuleList(self.all_nets)
-        self.optimizer = torch.optim.Adam(self.module_list.parameters())
+        # self.optimizer = torch.optim.Adam(self.module_list.parameters())
+        self.optimizer_pre.load_state_dict(
+            torch.load(
+                filename + '_pre_optimizer',
+                map_location=torch.device(device)
+            )
+        )
+
+        self.optimizer_state.load_state_dict(
+            torch.load(
+                filename + '_state_optimizer',
+                map_location=torch.device(device)
+            )
+        )
+        
 
     def get_tau(self):
         return self.tau

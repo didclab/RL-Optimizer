@@ -134,7 +134,7 @@ class RatioReward(AbstractReward):
     @staticmethod
     def construct(x, r_w=True):
         if r_w:
-            return x.read_throughput / (x.write_throughput + 1e-5)
+            return x.read_throughput / 600.
         else:
             return x.write_throughput / (x.read_throughput + 1e-5)
 

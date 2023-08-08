@@ -1,0 +1,10 @@
+{
+    "use_pid": true,
+    "pretrain": false,
+    "data": "data/balanced_influx_data.csv",
+    "use_gan": false,
+    "gan_path": "data/conv_generator_state_dict4-2.pth",
+    "eval": true,
+    "checkpoint": "checkpoint/BDQ_pid_env",
+    "savefile_name": "BDQ_pid_env"
+}
