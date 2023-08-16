@@ -1,10 +1,21 @@
 {
-    "use_pid": true,
+    "start_from_chkpt": true,
+    
+    "use_pid":true,
     "pretrain": false,
     "data": "data/balanced_influx_data.csv",
+    "savefile_name": "BDQ_pid3_env",
+
+    "train_eval_frequency": 100,
+    "train_eval_num": 10,
+    "log_state": false,
+    "log_action": true,
+
     "use_gan": false,
     "gan_path": "data/conv_generator_state_dict4-2.pth",
-    "eval": true,
-    "checkpoint": "checkpoint/BDQ_pid_env",
-    "savefile_name": "BDQ_pid_env"
+
+    "test_greedy": false,
+    "eval": false,
+    "checkpoint": "checkpoint/BDQ_pid3_env",
+    "test_greedy": false
 }

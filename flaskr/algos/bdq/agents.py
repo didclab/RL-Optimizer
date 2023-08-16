@@ -17,11 +17,15 @@ class BDQAgent(AbstractAgent, object):
     """
 
     def __init__(self, state_dim, action_dims: list,
-                 device, num_actions=1, discount=0.99, tau=0.005, decay=0.9966, evaluate=False) -> None:
+                 device, num_actions=1, discount=0.99, tau=0.005, decay=0.9966, evaluate=False,
+                 writer=None) -> None:
         super().__init__()
         self.device = device
         self.discount = discount
         self.tau = tau
+
+        self.writer = writer
+        self.call_count = 0
 
         """
         Index 0: PreNet Online
@@ -70,14 +74,15 @@ class BDQAgent(AbstractAgent, object):
         self.epsilon = max(0.005, self.epsilon * self.decay)
 
     def set_eval(self):
+        self.epsilon = 0.
         self.pre_net.eval()
         self.state_net.eval()
 
         for adv_net in self.adv_nets:
             adv_net.eval()
         
-    def select_action(self, state):
-        if np.random.random() <= self.epsilon:
+    def select_action(self, state, bypass_epsilon=False):
+        if np.random.random() <= self.epsilon and not bypass_epsilon:
             # needs to be improved but will do for now
             return np.array([np.random.randint(0, self.action_dims[i]) for i in range(self.num_actions)])
 
@@ -195,6 +200,9 @@ class BDQAgent(AbstractAgent, object):
         state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
 
         loss, _, _ = self.compute_target_loss(state, next_state, action, reward, not_done)
+        if self.writer is not None:
+            self.writer.add_scalar("Train/loss", loss, self.call_count)
+            self.call_count += 1
 
         # self.optimizer.zero_grad()
         self.optimizer_pre.zero_grad()

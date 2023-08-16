@@ -31,8 +31,9 @@ from abc import ABC, abstractmethod
 from tqdm import tqdm
 
 enable_tensorboard = os.getenv("ENABLE_TENSORBOARD", default='False').lower() in ('true', '1', 't')
+writer = None
 if enable_tensorboard:
-    writer = SummaryWriter('./runs/eval_greedy_pid/')
+    writer = SummaryWriter('./runs/eval_pid3_bdq/')
 
 class AbstractTrainer(ABC):
     def warm_buffer(self):
@@ -138,7 +139,7 @@ def load_clean_norm_dataset(path: str) -> pandas.DataFrame:
 class BDQTrainer(AbstractTrainer):
     def __init__(self, create_opt_request: classes.CreateOptimizerRequest, max_episodes=100, batch_size=64, config_file='config/default.json'):
         self.config = self.parse_config(config_file)
-        
+
         self.total_obs_cols = ['active_core_count', 'allocatedMemory',
                                'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
                                'dropin', 'dropout', 'packet_loss_rate', 'chunkSize', 'concurrency',
@@ -175,7 +176,7 @@ class BDQTrainer(AbstractTrainer):
         self.action_space = gymnasium.spaces.Discrete(4)
         action_dim = self.action_space.n
         self.branches = 2
-        
+
         self.batch_size = batch_size
         self.max_episodes = max_episodes
 
@@ -191,7 +192,7 @@ class BDQTrainer(AbstractTrainer):
 
         self.agent = bdq_agents.BDQAgent(
             state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2,
-            decay=0.992
+            decay=0.992, writer=writer
         )
         # self.history = deque(maxlen=5)
 
@@ -211,7 +212,7 @@ class BDQTrainer(AbstractTrainer):
             print("[INFO] In Eval Mode")
         if self.pretrain_mode:
             print("[INFO] In Rapid Pretrain")
-            
+
             if self.config['use_gan']:
                 self.gen = ConvGeneratorNet(100).double().to(self.device)
                 self.gen.load_state_dict(torch.load(self.config['gan_path']))
@@ -295,7 +296,7 @@ class BDQTrainer(AbstractTrainer):
         self.training_flag = True
 
         # print("Before surrogate used")
-        
+
         # episode = 1 transfer job
         cols = ['active_core_count', 'allocatedMemory', 'avgFileSize',
                 'bytesDownloaded', 'bytesUploaded', 'bytes_recv', 'bytes_sent',
@@ -354,12 +355,12 @@ class BDQTrainer(AbstractTrainer):
                 actions = []
                 for _, row in denorm_df.iterrows():
                     actions.append([convert_to_action(p, self.params_to_actions) for p in row])
-                
+
                 rewards = RatioReward.construct(denorm_df)
 
                 self.replay_buffer.add_batch(norm_obs, actions, norm_next_obs, rewards, np.repeat(False, 256))
-                
-                
+
+
 
         self.training_flag = False
         self.agent.save_checkpoint(self.save_file_name)
@@ -370,8 +371,8 @@ class BDQTrainer(AbstractTrainer):
         #     writer.flush()
         #     writer.close()
         return []
-        
-    def train(self, max_episodes=2000, launch_job=False):
+
+    def train(self, max_episodes=1500, launch_job=False):
         if self.eval_mode:
             return [self.test_agent(eval_episodes=15)]
         if self.pretrain_mode:
@@ -396,12 +397,45 @@ class BDQTrainer(AbstractTrainer):
         reward_type = 'arslan'
         if self.use_ratio:
             reward_type = 'ratio'
-        
+
+        action_log = None
+        if self.config['log_action']:
+            action_log = open("actions_train.log", 'a')
+
+        state_log = None
+        if self.config['log_state']:
+            state_log = open("state_train.log", 'a')
+
+        best_mean_rew = 0.
+        eval_counter = 0
+        eval_when = self.config['train_eval_frequency']
+        eval_how_many = self.config['train_eval_num']
+        temp_file_name = self.config["savefile_name"] + '_temp'
         for episode in tqdm(range(max_episodes), unit='ep'):
             episode_reward = 0
             terminated = False
 
             # print("BDQTrainer.train(): starting episode", episode+1)
+            eval_counter += 1
+            if eval_counter == eval_when:
+                eval_counter = 0
+                # 1. save model to temp
+                self.agent.save_checkpoint(temp_file_name)
+
+                # 2. call and wait for eval
+                print("Evaluating model at", str(episode))
+                mean_reward = self.test_agent(
+                    eval_episodes=eval_how_many, use_checkpoint=temp_file_name, use_id=episode
+                )
+
+                # 3. if better, save model as best
+                if best_mean_rew < mean_reward:
+                    best_mean_rew = mean_reward
+                    self.agent.save_checkpoint("best_" + self.config['savefile_name'])
+
+                # 4. reset environment
+                obs = self.env.reset(options={'launch_job': True})[0]
+                obs = np.asarray(a=obs, dtype=numpy.float64)
 
             if enable_tensorboard:
                 start_stamp = time.time()
@@ -418,6 +452,9 @@ class BDQTrainer(AbstractTrainer):
                 obs_np = np.array(norm_obs)
                 # print("[Normalized Obs]", obs_np)
 
+                if state_log:
+                    state_log.write(np.array2string(obs_np, precision=3, seperator=',') + '\n')
+
                 # history_len = len(self.history)
                 if self.replay_buffer.size <= 1e2: # or history_len < 4:
                     actions = [self.env.action_space.sample(), self.env.action_space.sample()]
@@ -426,10 +463,12 @@ class BDQTrainer(AbstractTrainer):
                     actions = self.agent.select_action(obs_np)
                 # action = np.clip(action, 1, 32)
                 params = [self.actions_to_params[a] for a in actions]
+                if action_log:
+                   action_log.write(str(params) + "\n")
 
                 new_obs, reward, terminated, truncated, info = self.env.step(params, reward_type=reward_type)
                 ts += 1
-                
+
                 if self.use_pid_env:
                     norm_next_obs = new_obs
                 else:
@@ -441,7 +480,7 @@ class BDQTrainer(AbstractTrainer):
 
                 # self.history.append(norm_next_obs)
 
-                # if history_len == 4: 
+                # if history_len == 4:
                 self.replay_buffer.add(norm_obs, actions, norm_next_obs, reward, terminated)
                 obs = new_obs
 
@@ -456,9 +495,9 @@ class BDQTrainer(AbstractTrainer):
                     writer.add_scalar("Train/average_reward_step", episode_reward / ts, episode)
                     writer.add_scalar("Train/job_time", time_elapsed, episode)
                     writer.add_scalar("Train/throughput", 32. / time_elapsed, episode)
-                    
+
                 ts = 0
-                if (episode+1) < max_episodes:
+                if (episode+1) < max_episodes and eval_counter < eval_when-1:
                     obs = self.env.reset(options={'launch_job': True})[0]
                     obs = np.asarray(a=obs, dtype=numpy.float64)
 
@@ -469,25 +508,34 @@ class BDQTrainer(AbstractTrainer):
                     # print("[Epsilon-Decay] Updating Epsilon")
                     self.agent.update_epsilon()
 
-                self.agent.save_checkpoint(self.config["savefile_name"])
+                self.agent.save_checkpoint(self.config["savefile_name"] + '_temp')
 
         self.training_flag = False
-        self.agent.save_checkpoint(self.config["savefile_name"])
+        self.agent.save_checkpoint(self.config["savefile_name"] + '_final')
         # self.env.render(mode="graph")
         self.training_flag = False
         print("BDQTrainer.train(): THREAD EXITING")
+
+        if self.config['log_state']:
+            state_log.flush()
+            state_log.close()
+
+        if self.config['log_action']:
+            action_log.flush()
+            action_log.close()
 
         if enable_tensorboard:
             writer.flush()
             writer.close()
         return episode_rewards
 
-    def test_agent(self, eval_episodes=10, seed=0, render=False):
-        self.agent.set_eval()
+    def test_agent(self, eval_episodes=10, seed=0, use_checkpoint=None, use_id=None):
+        if use_checkpoint is None:
+            self.agent.set_eval()
 
         options = {'launch_job': False}
         state = self.env.reset(options=options)[0]  # gurantees job is running
-        
+
         episodes_reward = []
         terminated = False
 
@@ -501,28 +549,75 @@ class BDQTrainer(AbstractTrainer):
         greedy_actions = [3, 2, 1, 1]
         i = 0
 
-        # action_log = open("actions_eval.log", "a")
-        for ep in tqdm(range(eval_episodes), unit='ep'):
+        action_log = None
+        state_log = None
+
+        if self.config['log_action']:
+            action_log = open("actions_eval.log", 'a')
+            # if use_id is None:
+            #     action_log = open("actions_eval.log", 'a')
+            # else:
+            #     action_log = open("actions_eval_"+str(use_id)+".log", 'a')
+
+        if self.config['log_state']:
+            state_log = open("state_eval.log", 'a')
+            # if use_id is None:
+            #     state_log = open("states_eval.log", 'a')
+            # else:
+            #     state_log = open("states_eval_"+str(use_id)+".log", 'a')
+
+        eval_agent = None
+        if use_checkpoint is not None:
+            state_dim = self.env.observation_space.shape[0]
+            action_dim = self.action_space.n
+
+            check_agent = bdq_agents.BDQAgent(
+                state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2,
+                decay=0.992, writer=writer
+            )
+
+
+        start_ep = 0 if use_id is None else use_id
+        switch_ep = eval_episodes >> 1
+        for ep in tqdm(range(start_ep, eval_episodes, 1), unit='ep'):
             episode_reward = 0
 
-            # action_log.write("======= Episode " + str(ep) + " =======\n")
+            if ep < switch_ep or use_id is None:
+                eval_agent = self.agent
+            else:
+                eval_agent = check_agent
+
+            if action_log is not None:
+                action_log.write("======= Episode " + str(ep) + " =======\n")
+            if state_log is not None:
+                state_log.write("======= Episode " + str(ep) + " =======\n")
+
             terminated = False
             ts = 0
+            i = 0
             start_stamp = time.time()
             while not terminated:
                 if not self.use_pid_env:
                     state = (state - means[self.obs_cols].to_numpy()) / \
                         (stds[self.obs_cols].to_numpy() + 1e-3)
-                
+
+                if state_log is not None:
+                    state_log.write(np.array2string(np.array(state), precision=3, seperator=',') + '\n')
+
                 with torch.no_grad():
-                    # actions = self.agent.select_action(np.array(state))
                     ts += 1
-                    actions = [greedy_actions[i], 3]
-                    i = min(ts, 3)
+                    if self.config['test_greedy']:
+                        actions = [greedy_actions[i], 3]
+                        i = min(ts, 3)
+                    else:
+                        actions = eval_agent.select_action(np.array(state), bypass_epsilon=True)
 
                 params = [self.actions_to_params[a] for a in actions]
                 next_state, reward, terminated, truncated, info = self.env.step(params, reward_type=reward_type)
-                # action_log.write(str(params) + "\n")
+
+                if action_log is not None:
+                    action_log.write(str(params) + "\n")
+
                 episode_reward += reward
                 state = next_state
 
@@ -534,15 +629,24 @@ class BDQTrainer(AbstractTrainer):
                 # writer.add_scalar("Eval/episode_reward", episode_reward, ep)
                 writer.add_scalar("Eval/average_reward_step", episode_reward / ts, ep)
                 writer.add_scalar("Eval/throughput", throughput, ep)
-            
+
             if ep < eval_episodes-1:
                 i = 0
                 state = self.env.reset(options={'launch_job': True})[0]
+
 
         # action_log.close()
         if enable_tensorboard:
             writer.flush()
             writer.close()
+
+        if state_log:
+            state_log.flush()
+            state_log.close()
+
+        if action_log:
+            action_log.flush()
+            action_log.close()
 
         return np.mean(episodes_reward)
 
@@ -594,9 +698,9 @@ class DDPGTrainer(AbstractTrainer):
 
         self.norm_data = load_clean_norm_dataset('data/benchmark_data.csv')
         self.stats = self.norm_data.describe()
-        
+
         self.warm_buffer()
-        
+
         self.save_file_name = f"DDPG_{'influx_gym_env'}"
         try:
             os.mkdir('./models')
@@ -667,14 +771,14 @@ class DDPGTrainer(AbstractTrainer):
         means = self.stats.loc['mean']
         stds = self.stats.loc['std']
         stds = stds.where(stds > 0, other=10.)
-        
+
         for episode in range(max_episodes):
             episode_reward = 0
             terminated = False
 
             if enable_tensorboard:
                 start_stamp = time.time()
-            
+
             while not terminated:
                 if self.replay_buffer.size < 1e3:
                     action = self.env.action_space.sample()
@@ -696,7 +800,7 @@ class DDPGTrainer(AbstractTrainer):
                     (stds[self.obs_cols].to_numpy() + 1e-3)
                 norm_new_obs = (new_obs - means[self.obs_cols].to_numpy()) / \
                     (stds[self.obs_cols].to_numpy() + 1e-3)
-                
+
                 ts += 1
                 self.replay_buffer.add(norm_obs, action, norm_new_obs, reward, terminated)
                 # print("Obs: ", obs)
@@ -716,7 +820,7 @@ class DDPGTrainer(AbstractTrainer):
                     time_elapsed = time.time() - start_stamp
                     writer.add_scalar("Train/ep_reward", episode_reward, episode)
                     writer.add_scalar("Train/job_time", time_elapsed, episode)
-                    
+
                 if (episode+1) < max_episodes:
                     obs = self.env.reset(options={'launch_job': True})[0]
                     obs = np.asarray(a=obs, dtype=numpy.float64)

@@ -127,12 +127,14 @@ class InfluxEnv(gym.Env):
         reward = 0
         count = 0
         fail_count = 0
+
         while True:
             print("Blocking till action: ", action)
             df = self.influx_client.query_space("-30s")
             if not set(self.data_columns).issubset(df.columns):
                 time.sleep(1)
                 continue
+
             # For every query we want to add to the buffer bc its more data on transfer.
             for i in range(df.shape[0] - 1):
                 current_row = df.iloc[i]

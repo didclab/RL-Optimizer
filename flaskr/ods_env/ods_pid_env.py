@@ -69,8 +69,14 @@ class PIDEnv(gym.Env):
         self.past_utility = 0
 
         self.target_thput = target_thput
-        self.error_1 = 0
-        self.error_2 = 0
+        self.error_0 = 0.
+        self.dt_0 = 50.
+        
+        self.error_1 = 0.
+        self.dt_1 = 50.
+        
+        self.error_2 = 0.
+        self.dt_2 = 50.
 
         self.max_par = 16
         self.max_sum = 300 * self.target_thput
@@ -190,8 +196,16 @@ class PIDEnv(gym.Env):
         err_sum = self.error_1 + (err * dt)
         err_diff = (err - self.error_2) / dt
 
-        self.error_1 = err_sum
-        self.error_2 = err
+        self.error_2 = self.error_1
+        self.error_1 = self.error_0
+        self.error_0 = err
+
+        self.dt_2 = self.dt_1
+        self.dt_1 = self.dt_0
+        self.dt_0 = dt
+
+        # err = err - self.error_1
+        # err_diff = err_diff + (self.error_2 / self.dt_2) - 2 * (self.error_1 / self.dt_1)
 
         err /= self.target_thput
         err_sum /= self.max_sum
@@ -246,7 +260,7 @@ class PIDEnv(gym.Env):
         self.space_df.drop_duplicates(inplace=True)
         obs = self.space_df[self.data_columns].tail(n=1)
 
-        err = self.target_thput - obs['read_throughput'].to_numpy()[-1]
+        err = 0 # self.target_thput - obs['read_throughput'].to_numpy()[-1]
         err_sum = err
         err_diff = err
 
@@ -259,6 +273,11 @@ class PIDEnv(gym.Env):
             self.error_2 = 0.
         else:
             self.error_2 = err
+
+        self.error_0 = 0.
+        self.dt_0 = 50.
+        self.dt_1 = 50.
+        self.dt_2 = 50.
 
         obs = obs[['parallelism', 'concurrency']]
 
