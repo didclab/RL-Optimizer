@@ -25,7 +25,7 @@ class DDPGAgent(object):
         # self.critic_optimizer = torch.optim.Adagrad(self.critic.parameters())
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters())
 
-    def select_action(self, state):
+    def select_action(self, state, bypass_epsilon=False):
         state = torch.FloatTensor(state.reshape(1, -1)).to(self.device)
         return self.actor(state).cpu().data.numpy().flatten()
         #
@@ -68,6 +68,10 @@ class DDPGAgent(object):
             )
         )
         self.actor_target = deepcopy(self.actor)
+
+    def set_eval(self):
+        self.critic.eval()
+        self.actor.eval()
 
     def train(self, replay_buffer, batch_size=256):
         state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)

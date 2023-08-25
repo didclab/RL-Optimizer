@@ -33,9 +33,12 @@ from tqdm import tqdm
 enable_tensorboard = os.getenv("ENABLE_TENSORBOARD", default='False').lower() in ('true', '1', 't')
 writer = None
 if enable_tensorboard:
-    writer = SummaryWriter('./runs/eval_pid3_bdq/')
+    writer = SummaryWriter('./runs/eval2_pid3_bdq/')
 
 class AbstractTrainer(ABC):
+    def __init__(self, trainer_type):
+        self.trainer_type = trainer_type
+
     def warm_buffer(self):
         pass
 
@@ -138,6 +141,8 @@ def load_clean_norm_dataset(path: str) -> pandas.DataFrame:
 
 class BDQTrainer(AbstractTrainer):
     def __init__(self, create_opt_request: classes.CreateOptimizerRequest, max_episodes=100, batch_size=64, config_file='config/default.json'):
+        super().__init__("BDQ")
+
         self.config = self.parse_config(config_file)
 
         self.total_obs_cols = ['active_core_count', 'allocatedMemory',
@@ -667,7 +672,8 @@ class BDQTrainer(AbstractTrainer):
 
 class DDPGTrainer(AbstractTrainer):
     def __init__(self, create_opt_request=classes.CreateOptimizerRequest, max_episodes=100, batch_size=64,
-                 update_policy_time_steps=20):
+                 update_policy_time_steps=20, config_file='config/default.json'):
+        super().__init__("DDPG")
         # self.obs_cols = ['active_core_count', 'allocatedMemory',
         #                  'bytes_recv', 'bytes_sent', 'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min',
         #                  'dropin', 'dropout', 'errin', 'errout', 'freeMemory', 'maxMemory', 'memory',
@@ -676,16 +682,31 @@ class DDPGTrainer(AbstractTrainer):
         #                  'destination_latency', 'destination_rtt',
         #                  'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt',
         #                  'write_throughput']
+        self.config = self.parse_config(config_file)
         self.obs_cols = ['active_core_count',
                          'dropin', 'dropout', 'packets_recv', 'packets_sent', 'chunkSize', 'concurrency',
                          'destination_latency', 'destination_rtt',
                         'parallelism', 'read_throughput', 'source_latency', 'source_rtt',
                          'write_throughput']
 
+        self.obs_cols_pid = ['parallelism', 'concurrency', 'err', 'err_sum', 'err_diff']
+
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.create_opt_request = create_opt_request  # this gets updated every call
-        self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-30d",
-                                                observation_columns=self.obs_cols)
+
+        self.use_pid_env = self.config['use_pid']
+        if self.use_pid_env:
+            print("[INFO] Using PID Environment")
+
+        if self.use_pid_env:
+            self.obs_cols = self.obs_cols_pid
+            env_cols = ['concurrency', 'parallelism', 'read_throughput']
+            self.env = ods_pid_env.PIDEnv(create_opt_req=create_opt_request, time_window="-1d",
+                                          observation_columns=env_cols, target_thput=819.,
+                                          action_space_discrete=False)
+        else:
+            self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-30d",
+                                                    observation_columns=self.obs_cols)
         state_dim = self.env.observation_space.shape[0]
         action_dim = self.env.action_space.shape[0]
         self.agent = ddpg_agents.DDPGAgent(
@@ -699,7 +720,11 @@ class DDPGTrainer(AbstractTrainer):
         self.norm_data = load_clean_norm_dataset('data/benchmark_data.csv')
         self.stats = self.norm_data.describe()
 
-        self.warm_buffer()
+        self.pretrain_mode = self.config['pretrain']
+        self.eval_mode = self.config['eval']
+
+        if not self.eval_mode and not self.config['use_gan'] and not self.use_pid_env:
+            self.warm_buffer()
 
         self.save_file_name = f"DDPG_{'influx_gym_env'}"
         try:
@@ -707,6 +732,23 @@ class DDPGTrainer(AbstractTrainer):
         except Exception as e:
             pass
         self.training_flag = False
+
+
+        if self.eval_mode:
+            self.agent.load_checkpoint(self.config['checkpoint'])
+            self.agent.set_eval()
+            print("[INFO] In Eval Mode")
+        if self.pretrain_mode:
+            print("[INFO] In Rapid Pretrain")
+
+            if self.config['use_gan']:
+                self.gen = ConvGeneratorNet(100).double().to(self.device)
+                self.gen.load_state_dict(torch.load(self.config['gan_path']))
+                self.gan.eval()
+                print("[GAN] Generator Loaded")
+
+        if not self.eval_mode and not self.config['use_gan'] and not self.use_pid_env:
+            self.warm_buffer()
 
         if enable_tensorboard:
             print("[INFO] DDPG: Tensorboard Enabled")
@@ -756,13 +798,15 @@ class DDPGTrainer(AbstractTrainer):
             self.replay_buffer.add(norm_obs, action, norm_next_obs, reward, False)
 
     def train(self, max_episodes=1000, batch_size=32):
+        if self.eval_mode:
+            return [env_utils.test_agent(self, writer, eval_episodes=15)]
+
         self.training_flag = True
         episode_rewards = []
         options = {'launch_job': False}
-        print("Before the first env reset()")
+        print("[DDPG] Before the first env reset()")
         obs = self.env.reset(options=options)[0]  # gurantees job is running
         obs = np.asarray(a=obs, dtype=numpy.float64)
-        ts = 0
 
         action_dim = self.env.action_space.shape[0]
         dist_width = 0.1
@@ -772,13 +816,23 @@ class DDPGTrainer(AbstractTrainer):
         stds = self.stats.loc['std']
         stds = stds.where(stds > 0, other=10.)
 
-        for episode in range(max_episodes):
+        action_log = None
+        if self.config['log_action']:
+            action_log = open("actions_train.log", 'a')
+
+        state_log = None
+        if self.config['log_state']:
+            state_log = open("state_train.log", 'a')
+
+
+        for episode in tqdm(range(max_episodes), unit='ep'):
             episode_reward = 0
             terminated = False
 
             if enable_tensorboard:
                 start_stamp = time.time()
 
+            ts = 0
             while not terminated:
                 if self.replay_buffer.size < 1e3:
                     action = self.env.action_space.sample()
@@ -788,18 +842,25 @@ class DDPGTrainer(AbstractTrainer):
                         self.agent.select_action(np.array(obs)) +
                         np.random.normal(0, dist_width, size=action_dim)
                     ).clip(-1, 1)
-                    print("Raw agent action", action)
+                    # print("Raw agent action", action)
 
                 env_action = np.maximum((action + 1) * 8, 1)
                 env_action = np.rint(env_action)
+
+                if action_log:
+                    action_log.write(str(env_action) + "\n")
                 # action = np.clip(action, 1, 32)
 
                 new_obs, reward, terminated, truncated, info = self.env.step(env_action, reward_type='ratio')
 
-                norm_obs = (obs - means[self.obs_cols].to_numpy()) / \
-                    (stds[self.obs_cols].to_numpy() + 1e-3)
-                norm_new_obs = (new_obs - means[self.obs_cols].to_numpy()) / \
-                    (stds[self.obs_cols].to_numpy() + 1e-3)
+                if self.use_pid_env:
+                    norm_obs = obs
+                    norm_new_obs = new_obs
+                else:
+                    norm_obs = (obs - means[self.obs_cols].to_numpy()) / \
+                        (stds[self.obs_cols].to_numpy() + 1e-3)
+                    norm_new_obs = (new_obs - means[self.obs_cols].to_numpy()) / \
+                        (stds[self.obs_cols].to_numpy() + 1e-3)
 
                 ts += 1
                 self.replay_buffer.add(norm_obs, action, norm_new_obs, reward, terminated)
@@ -818,21 +879,30 @@ class DDPGTrainer(AbstractTrainer):
             if terminated:
                 if enable_tensorboard:
                     time_elapsed = time.time() - start_stamp
-                    writer.add_scalar("Train/ep_reward", episode_reward, episode)
+                    writer.add_scalar("Train/average_reward_step", episode_reward / ts, episode)
                     writer.add_scalar("Train/job_time", time_elapsed, episode)
+                    writer.add_scalar("Train/throughput", 32. / time_elapsed, episode)
 
                 if (episode+1) < max_episodes:
                     obs = self.env.reset(options={'launch_job': True})[0]
                     obs = np.asarray(a=obs, dtype=numpy.float64)
-                    print("Episode reward: {}", episode_reward)
+                    # print("Episode reward: {}", episode_reward)
                     episode_rewards.append(episode_reward)
                 time.sleep(1)
 
-            if episode % 1 == 0:
-                self.agent.save_checkpoint("ddpg_influx_gym")
-                print("Episode ", episode, " has average reward of: ", np.mean(episode_rewards))
+            if episode % 100 == 0:
+                self.agent.save_checkpoint(self.config["savefile_name"] + '_' + str(episode))
+                # print("Episode ", episode, " has average reward of: ", np.mean(episode_rewards))
 
         self.training_flag = False
+        if action_log:
+            action_log.flush()
+            action_log.close()
+        if state_log:
+            state_log.flush()
+            state_log.close()
+
+        print("[DDPG] THREAD EXITING")
         return episode_rewards
 
     def evaluate(self):
