@@ -16,5 +16,8 @@
 
     "eval": false,
     "test_greedy": false,
-    "checkpoint": "checkpoint/BDQ_pid3_env"
+    "checkpoint": "checkpoint/BDQ_pid3_env",
+
+    "deploy": false,
+    "deploy_train_frequency": 15
 }

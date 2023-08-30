@@ -33,7 +33,7 @@ from tqdm import tqdm
 enable_tensorboard = os.getenv("ENABLE_TENSORBOARD", default='False').lower() in ('true', '1', 't')
 writer = None
 if enable_tensorboard:
-    writer = SummaryWriter('./runs/eval2_pid3_bdq/')
+    writer = SummaryWriter('./runs/deploy_pid3_bdq/')
 
 class AbstractTrainer(ABC):
     def __init__(self, trainer_type):
@@ -211,10 +211,16 @@ class BDQTrainer(AbstractTrainer):
         self.use_ratio = True
         self.pretrain_mode = self.config['pretrain']
         self.eval_mode = self.config['eval']
+        self.deploy_mode = self.config['deploy']
 
-        if self.eval_mode:
+        self.deploy_ctr = 0
+        self.deploy_job_ctr = 0
+
+        if self.eval_mode or self.deploy_mode:
             self.agent.load_checkpoint(self.config['checkpoint'])
-            print("[INFO] In Eval Mode")
+            mode_str = "Eval" if self.eval_mode else "Deploy"
+            print("[INFO] In {0} Mode".format(mode_str))
+
         if self.pretrain_mode:
             print("[INFO] In Rapid Pretrain")
 
@@ -378,9 +384,11 @@ class BDQTrainer(AbstractTrainer):
         return []
 
     def train(self, max_episodes=1500, launch_job=False):
-        if self.eval_mode:
-            return [self.test_agent(eval_episodes=15)]
-        if self.pretrain_mode:
+        if self.deploy_mode:
+            return [env_utils.consult_agent(self, writer, self.deploy_job_ctr)]
+        elif self.eval_mode:
+            return [env_utils.test_agent(self, writer, eval_episodes=15)]
+        elif self.pretrain_mode:
             return self.rapid_pretrain()
 
         self.training_flag = True
