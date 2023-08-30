@@ -198,9 +198,9 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
     episode_reward = 0
 
     if action_log is not None:
-        action_log.write("======= Job " + str(ep) + " =======\n")
+        action_log.write("======= Job " + str(job) + " =======\n")
     if state_log is not None:
-        state_log.write("======= Job " + str(ep) + " =======\n")
+        state_log.write("======= Job " + str(job) + " =======\n")
 
     terminated = False
     ts = 0
