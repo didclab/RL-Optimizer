@@ -168,6 +168,7 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
     """
     Assume agent is NOT set to eval()
     """
+    print("[INFO] Optimizing Job " + str(job))
 
     options = {'launch_job': False}
     state = runner.env.reset(options=options)[0]  # gurantees job is running
