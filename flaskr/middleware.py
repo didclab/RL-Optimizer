@@ -66,6 +66,12 @@ class OptimizerMap(object):
                 trainer = self.optimizer_map[create_req.node_id]
                 # update the create optimizer to be the last one from the TS.
                 trainer.set_create_request(create_opt_req=create_req)
+
+                if trainer.deploy_mode:
+                    thread = threading.Thread(target=trainer.train)
+                    self.thread_map[create_req.node_id] = thread
+                    thread.start()
+
             print("Optimizer already exists for", create_req.node_id)
             return False
 
