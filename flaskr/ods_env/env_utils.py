@@ -249,7 +249,7 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
                 for _ in range(5):
                     runner.agent.train(replay_buffer=runner.replay_buffer, batch_size=runner.batch_size)
 
-                self.agent.save_checkpoint(runner.config["savefile_name"] + '_depl')
+                runner.agent.save_checkpoint(runner.config["savefile_name"] + '_depl')
 
         if action_log is not None:
             action_log.write(str(params) + "\n")
