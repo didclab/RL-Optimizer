@@ -244,7 +244,10 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
             runner.deploy_ctr = 0
 
             if runner.replay_buffer.size > 1e2:
-                runner.agent.train(replay_buffer=runner.replay_buffer, batch_size=runner.batch_size)
+                print("[INFO] agent mini-training")
+                for _ in range(5):
+                    runner.agent.train(replay_buffer=runner.replay_buffer, batch_size=runner.batch_size)
+
 
         if action_log is not None:
             action_log.write(str(params) + "\n")
