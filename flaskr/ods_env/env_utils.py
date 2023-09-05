@@ -190,10 +190,10 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
     state_log = None
 
     if runner.config['log_action']:
-        action_log = open("actions_eval.log", 'a')
+        action_log = open("actions_deploy.log", 'a')
 
     if runner.config['log_state']:
-        state_log = open("state_eval.log", 'a')
+        state_log = open("state_deploy.log", 'a')
 
     eval_agent = runner.agent
     episode_reward = 0
@@ -206,6 +206,12 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
     terminated = False
     ts = 0
     i = 0
+
+    no_train = runner.config['deploy_no_train']
+    if no_train:
+        runner.agent.set_eval()
+
+    cur_target = runner.env.target_thput
     start_stamp = time.time()
     while not terminated:
         if not runner.use_pid_env:
@@ -215,14 +221,21 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
         if state_log is not None:
             state_log.write(np.array2string(np.array(state), precision=3, seperator=',') + '\n')
 
+        # if state['read_throughput'] > (1.25 * cur_target):
+        #     cur_target = state['read_throughput']
+        #     runner.env.set_target(cur_target)
+
         # with torch.no_grad():
         ts += 1
         if runner.config['test_greedy']:
             actions = [greedy_actions[i], 3]
             i = min(ts, 3)
         else:
-            actions = eval_agent.select_action(np.array(state), bypass_epsilon=True)
-
+            if no_train:
+                with torch.no_grad():
+                    actions = eval_agent.select_action(np.array(state), bypass_epsilon=True)
+            else:
+                actions = eval_agent.select_action(np.array(state), bypass_epsilon=True)
         params = actions
         if runner.trainer_type == "BDQ":
             params = [runner.actions_to_params[a] for a in actions]
@@ -235,13 +248,13 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
 
         next_state, reward, terminated, truncated, info = runner.env.step(params, reward_type=reward_type)
 
-        runner.replay_buffer.add(state, actions, next_state, reward, terminated)
-        """
-        TODO: add 'counter' for train frequency; DONE
-        TODO: add train loop here since train() cannot be used (I think)
-        """
+        if info is not None and cur_target < info['nic_speed']:
+            cur_target = info['nic_speed']
+            runner.env.set_target_thput(cur_target)
 
-        if runner.deploy_ctr == runner.config['deploy_train_frequency']:
+        runner.replay_buffer.add(state, actions, next_state, reward, terminated)
+
+        if not no_train and runner.deploy_ctr == runner.config['deploy_train_frequency']:
             runner.deploy_ctr = 0
 
             if runner.replay_buffer.size > 1e2:
@@ -262,14 +275,12 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
     episodes_reward.append(episode_reward)
 
     if writer is not None:
-        # writer.add_scalar("Eval/episode_reward", episode_reward, ep)
         writer.add_scalar("Deploy/average_reward_step", episode_reward / ts, job)
         writer.add_scalar("Deploy/throughput", throughput, job)
 
 
     if writer:
         writer.flush()
-        writer.close()
 
     if state_log:
         state_log.flush()

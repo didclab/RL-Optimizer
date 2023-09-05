@@ -84,6 +84,15 @@ class PIDEnv(gym.Env):
 
         print("Finished constructing the PID Gym Env")
 
+    def set_target_thput(self, target_thput):
+        """
+        This function recalculates the max integral and derivative
+        """
+        print("[PID] Setting target to", str(target_thput))
+        self.target_thput = target_thput
+        self.max_sum = 300 * self.target_thput
+        self.max_diff = (0.75 * self.target_thput) / 4
+
     """
     Stepping the env and a live transfer behind the scenes.
     Params: action = {"concurrency":1-64, "parallelism":1-64, "pipelining:1-100}
@@ -139,6 +148,10 @@ class PIDEnv(gym.Env):
                 transfer_node_name=self.create_opt_request.node_id,
                 cc=action[0], p=action[1], pp=1, chunkSize=0
             )
+        else:
+            # introduce delay to prevent param spam
+            print("[PID] Duplicate; PID sleeping")
+            time.sleep(10)
 
         # block until action applies to TS
         terminated = False
@@ -230,7 +243,11 @@ class PIDEnv(gym.Env):
         #     print("JobId: ", self.job_id, " job is done")
 
         # print(observation)
-        return observation, reward, terminated, None, None
+        info = {
+            'nic_speed': last_row['nic_speed'].to_numpy()[0],
+            'read_throughput': last_row['read_throughput'].to_numpy()[0]
+        }
+        return observation, reward, terminated, None, info
 
     """
     So right now this does not launch another job. It simply resets the observation space to the last jobs influx entries

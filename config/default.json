@@ -4,12 +4,12 @@
     "use_pid":true,
     "pretrain": false,
     "data": "data/balanced_influx_data.csv",
-    "savefile_name": "DDPG_pid3_env",
+    "savefile_name": "BDQ_pid3_env",
 
     "train_eval_frequency": 100,
     "train_eval_num": 10,
     "log_state": false,
-    "log_action": true,
+    "log_action": false,
 
     "use_gan": false,
     "gan_path": "data/conv_generator_state_dict4-2.pth",
@@ -19,5 +19,6 @@
     "checkpoint": "checkpoint/BDQ_pid3_env",
 
     "deploy": false,
+    "deploy_no_train": true,
     "deploy_train_frequency": 15
 }
