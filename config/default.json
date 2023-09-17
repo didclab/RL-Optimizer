@@ -2,12 +2,15 @@
     "start_from_chkpt": true,
     
     "use_pid":true,
+    "pid_frequency_mix": 0.4,
+
     "pretrain": false,
     "data": "data/balanced_influx_data.csv",
-    "savefile_name": "BDQ_pid3_env",
+    "savefile_name": "BDQ_pid5_env",
 
+    "train_num_episodes": 1500,
     "train_eval_frequency": 100,
-    "train_eval_num": 10,
+    "train_eval_num": 15,
     "log_state": false,
     "log_action": false,
 

@@ -37,7 +37,7 @@ def construct_reward():
 
 class PIDEnv(gym.Env):
 
-    def __init__(self, create_opt_req: CreateOptimizerRequest, target_thput,
+    def __init__(self, create_opt_req: CreateOptimizerRequest, target_thput, config=None,
                  action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns=[]):
         super(PIDEnv, self).__init__()
         self.replay_buffer = None
@@ -54,13 +54,16 @@ class PIDEnv(gym.Env):
             self.data_columns = observation_columns
         else:
             self.data_columns = self.space_df.columns.values
+
+        self.state_columns = ['parallelism', 'concurrency']
+
         if action_space_discrete:
             # self.action_space = spaces.Discrete(3)  # drop stay increase
             self.action_space = spaces.Discrete(4)
         else:
             self.action_space = spaces.Box(low=-1, high=1, shape=(2,))  # for now cc, p only
         # So this is probably not defined totally properly as I assume dimensions are 0-infinity
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(len(self.data_columns) + 2,))
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(5,))
         self.past_rewards = []
         self.past_actions = []
         self.render_mode = render_mode
@@ -69,6 +72,9 @@ class PIDEnv(gym.Env):
         self.past_utility = 0
 
         self.target_thput = target_thput
+        self.target_freq = 1000. # MHz
+        self.freq_max = 4000.
+
         self.error_0 = 0.
         self.dt_0 = 50.
         
@@ -78,20 +84,40 @@ class PIDEnv(gym.Env):
         self.error_2 = 0.
         self.dt_2 = 50.
 
+        self.mix = 0.
+        if config is not None:
+            self.mix = config['pid_frequency_mix']
+
         self.max_par = 16
-        self.max_sum = 300 * self.target_thput
-        self.max_diff = (0.75 * self.target_thput) / 4
+
+        self.max_err = (1. - self.mix) * self.target_thput + (self.mix * 3000.)
+        self.max_sum = 300 * self.max_err
+        self.max_diff = (0.75 * self.max_err) / 4
 
         print("Finished constructing the PID Gym Env")
 
     def set_target_thput(self, target_thput):
         """
-        This function recalculates the max integral and derivative
+        This function recalculates the max err, integral and derivative
         """
-        print("[PID] Setting target to", str(target_thput))
+        print("[PID] Setting target thput to", str(target_thput))
         self.target_thput = target_thput
-        self.max_sum = 300 * self.target_thput
-        self.max_diff = (0.75 * self.target_thput) / 4
+
+        self.max_err = (1. - self.mix) * self.target_thput + self.mix * (self.freq_max - self.target_freq)
+        self.max_sum = 300 * self.max_err
+        self.max_diff = (0.75 * self.max_err) / 4
+
+    def set_target_freq(self, target_freq, freq_max):
+        """
+        This function recalculates max err, integral and derivative
+        """
+        print("[PID] Setting target frequency to [", str(target_freq), str(freq_max), "]")
+        self.target_freq = target_freq
+        self.freq_max = freq_max
+
+        self.max_err = (1. - self.mix) * self.target_thput + self.mix * (self.freq_max - self.target_freq)
+        self.max_sum = 300 * self.max_err
+        self.max_diff = (0.75 * self.max_err) / 4
 
     """
     Stepping the env and a live transfer behind the scenes.
@@ -104,21 +130,6 @@ class PIDEnv(gym.Env):
     """
 
     def step(self, action: list, reward_type=None):
-        # print("Step: action:", action)
-        # df = self.influx_client.query_space("-2m")
-        # self.space_df = pd.concat([self.space_df, df])
-        # last_row = self.space_df.tail(n=1)
-        # observation = last_row[self.data_columns]
-        # if self.create_opt_request.db_type == "hsql":
-        #     terminated, _ = oh.query_if_job_done_direct(self.job_id)
-        # else:
-        #     terminated, _ = oh.query_if_job_done(self.job_id)
-
-        # if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
-        #     1] > self.create_opt_request.max_parallelism:
-        #     reward = action[0] * action[1]
-        #     return observation, reward, terminated, None, None
-
         conc_nan = True
         para_nan = True
 
@@ -132,10 +143,10 @@ class PIDEnv(gym.Env):
             else:
                 terminated, _ = oh.query_if_job_done(self.job_id)
 
-            if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
-                    1] > self.create_opt_request.max_parallelism:
-                reward = action[0] * action[1]
-                return observation, reward, terminated, None, None
+            # if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
+            #         1] > self.create_opt_request.max_parallelism:
+            #     reward = action[0] * action[1]
+            #     return observation, reward, terminated, None, None
 
             conc_nan = last_row['concurrency'].isna().any()
             para_nan = last_row['parallelism'].isna().any()
@@ -206,6 +217,9 @@ class PIDEnv(gym.Env):
         all_observation = last_row[self.data_columns]
         
         err = self.target_thput - all_observation['read_throughput'].to_numpy()[-1]
+        err = (1. - self.mix) * err + self.mix * (all_observation['cpu_frequency_current'] - self.target_freq)
+
+        err = err.to_numpy()[0]
         err_sum = self.error_1 + (err * dt)
         err_diff = (err - self.error_2) / dt
 
@@ -220,7 +234,7 @@ class PIDEnv(gym.Env):
         # err = err - self.error_1
         # err_diff = err_diff + (self.error_2 / self.dt_2) - 2 * (self.error_1 / self.dt_1)
 
-        err /= self.target_thput
+        err /= self.max_err
         err_sum /= self.max_sum
         err_diff /= self.max_diff
 
@@ -245,8 +259,12 @@ class PIDEnv(gym.Env):
         # print(observation)
         info = {
             'nic_speed': last_row['nic_speed'].to_numpy()[0],
-            'read_throughput': last_row['read_throughput'].to_numpy()[0]
+            'read_throughput': last_row['read_throughput'].to_numpy()[0],
+            'cpu_frequency_min': last_row['cpu_frequency_min'].to_numpy()[0],
+            'cpu_frequency_max': last_row['cpu_frequency_max'].to_numpy()[0],
+            'cpu_frequency_current': last_row['cpu_frequency_current'].to_numpy()[0]
         }
+
         return observation, reward, terminated, None, info
 
     """
@@ -275,7 +293,7 @@ class PIDEnv(gym.Env):
         newer_df = self.influx_client.query_space("-5m")  # last min is 2 points.
         self.space_df = pd.concat([self.space_df, newer_df])
         self.space_df.drop_duplicates(inplace=True)
-        obs = self.space_df[self.data_columns].tail(n=1)
+        obs = self.space_df[self.state_columns].tail(n=1)
 
         err = 0 # self.target_thput - obs['read_throughput'].to_numpy()[-1]
         err_sum = err
@@ -298,9 +316,9 @@ class PIDEnv(gym.Env):
 
         obs = obs[['parallelism', 'concurrency']]
 
-        err /= self.target_thput
-        err_sum /= self.max_sum
-        err_diff /= self.max_diff
+        # err /= self.max_err
+        # err_sum /= self.max_sum
+        # err_diff /= self.max_diff
         
         obs['parallelism'] = obs['parallelism'] / self.max_par
         obs['concurrency'] = obs['concurrency'] / self.max_par
@@ -308,7 +326,7 @@ class PIDEnv(gym.Env):
         obs.insert(0, "err", err)
         obs.insert(1, "err_sum", err_sum)
         obs.insert(2, "err_diff", err_diff)
-        
+
         return obs, {}
 
     """

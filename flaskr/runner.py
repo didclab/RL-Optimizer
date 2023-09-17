@@ -33,7 +33,7 @@ from tqdm import tqdm
 enable_tensorboard = os.getenv("ENABLE_TENSORBOARD", default='False').lower() in ('true', '1', 't')
 writer = None
 if enable_tensorboard:
-    writer = SummaryWriter('./runs/deploy_pid3_bdq/')
+    writer = SummaryWriter('./runs/train_pid5_bdq/')
 
 class AbstractTrainer(ABC):
     def __init__(self, trainer_type):
@@ -166,10 +166,11 @@ class BDQTrainer(AbstractTrainer):
 
         if self.use_pid_env:
             self.obs_cols = self.obs_cols_pid
-            env_cols = ['concurrency', 'parallelism', 'read_throughput']
+            env_cols = ['concurrency', 'parallelism', 'read_throughput',
+                        'cpu_frequency_current', 'cpu_frequency_max', 'cpu_frequency_min']
             self.env = ods_pid_env.PIDEnv(create_opt_req=create_opt_request, time_window="-1d",
                                           observation_columns=env_cols, target_thput=819.,
-                                          action_space_discrete=True)
+                                          action_space_discrete=True, config=self.config)
         else:
             self.env = ods_influx_gym_env.InfluxEnv(create_opt_req=create_opt_request, time_window="-1d",
                                                     observation_columns=self.obs_cols)
@@ -384,6 +385,11 @@ class BDQTrainer(AbstractTrainer):
         return []
 
     def train(self, max_episodes=1500, launch_job=False):
+        # config takes priority
+        if self.config['train_num_episodes'] > 0:
+            max_episodes = self.config['train_num_episodes']
+            print("[CONFIG] training for", str(max_episodes), "episodes")
+
         if self.deploy_mode:
             return [env_utils.consult_agent(self, writer, self.deploy_job_ctr)]
         elif self.eval_mode:
@@ -424,6 +430,12 @@ class BDQTrainer(AbstractTrainer):
         eval_when = self.config['train_eval_frequency']
         eval_how_many = self.config['train_eval_num']
         temp_file_name = self.config["savefile_name"] + '_temp'
+
+        cur_target = self.env.target_thput
+        cur_freq = self.env.target_freq
+        cur_freq_max = self.env.freq_max
+
+        step_c = 0
         for episode in tqdm(range(max_episodes), unit='ep'):
             episode_reward = 0
             terminated = False
@@ -433,10 +445,10 @@ class BDQTrainer(AbstractTrainer):
             if eval_counter == eval_when:
                 eval_counter = 0
                 # 1. save model to temp
-                self.agent.save_checkpoint(temp_file_name)
+                # self.agent.save_checkpoint(temp_file_name)
 
                 # 2. call and wait for eval
-                print("Evaluating model at", str(episode))
+                print("\nEvaluating model at", str(episode))
                 mean_reward = self.test_agent(
                     eval_episodes=eval_how_many, use_checkpoint=temp_file_name, use_id=episode
                 )
@@ -481,6 +493,23 @@ class BDQTrainer(AbstractTrainer):
 
                 new_obs, reward, terminated, truncated, info = self.env.step(params, reward_type=reward_type)
                 ts += 1
+
+                if enable_tensorboard:
+                    writer.add_scalar
+
+                if info is not None:
+                    if cur_target < info['nic_speed']:
+                        cur_target = info['nic_speed']
+                        self.env.set_target_thput(cur_target)
+
+                    if cur_freq > info['cpu_frequency_min'] or cur_freq_max < info['cpu_frequency_max']:
+                        cur_freq = info['cpu_frequency_min']
+                        cur_freq_max = info['cpu_frequency_max']
+                        self.env.set_target_freq(cur_freq, cur_freq_max)
+
+                    if enable_tensorboard:
+                        writer.add_scalar("Train/cpu_freq", info['cpu_frequency_current'], step_c)
+                        step_c += 1
 
                 if self.use_pid_env:
                     norm_next_obs = new_obs
@@ -546,7 +575,7 @@ class BDQTrainer(AbstractTrainer):
         if use_checkpoint is None:
             self.agent.set_eval()
 
-        options = {'launch_job': False}
+        options = {'launch_job': False if use_id is None else True}
         state = self.env.reset(options=options)[0]  # gurantees job is running
 
         episodes_reward = []
@@ -567,38 +596,35 @@ class BDQTrainer(AbstractTrainer):
 
         if self.config['log_action']:
             action_log = open("actions_eval.log", 'a')
-            # if use_id is None:
-            #     action_log = open("actions_eval.log", 'a')
-            # else:
-            #     action_log = open("actions_eval_"+str(use_id)+".log", 'a')
 
         if self.config['log_state']:
             state_log = open("state_eval.log", 'a')
-            # if use_id is None:
-            #     state_log = open("states_eval.log", 'a')
-            # else:
-            #     state_log = open("states_eval_"+str(use_id)+".log", 'a')
 
-        eval_agent = None
-        if use_checkpoint is not None:
-            state_dim = self.env.observation_space.shape[0]
-            action_dim = self.action_space.n
+        eval_agent = self.agent
+        # if use_checkpoint is not None:
+        #     state_dim = self.env.observation_space.shape[0]
+        #     action_dim = self.action_space.n
 
-            check_agent = bdq_agents.BDQAgent(
-                state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2,
-                decay=0.992, writer=writer
-            )
+        #     check_agent = bdq_agents.BDQAgent(
+        #         state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2,
+        #         decay=0.992, writer=None
+        #     )
 
 
         start_ep = 0 if use_id is None else use_id
-        switch_ep = eval_episodes >> 1
-        for ep in tqdm(range(start_ep, eval_episodes, 1), unit='ep'):
+        # switch_ep = eval_episodes >> 1
+        range_itr = range(start_ep, start_ep + eval_episodes, 1)
+        reset_till = start_ep + eval_episodes - 1
+        if use_id is None:
+            range_itr = tqdm(range_itr, unit='ep')
+        for ep in range_itr:
+            print("[DEBUG/BDQ_EVAL] episode", str(ep))
             episode_reward = 0
 
-            if ep < switch_ep or use_id is None:
-                eval_agent = self.agent
-            else:
-                eval_agent = check_agent
+            # if ep < switch_ep or use_id is None:
+            #     eval_agent = self.agent
+            # else:
+            #     eval_agent = check_agent
 
             if action_log is not None:
                 action_log.write("======= Episode " + str(ep) + " =======\n")
@@ -639,19 +665,19 @@ class BDQTrainer(AbstractTrainer):
             episodes_reward.append(episode_reward)
 
             if enable_tensorboard:
-                # writer.add_scalar("Eval/episode_reward", episode_reward, ep)
                 writer.add_scalar("Eval/average_reward_step", episode_reward / ts, ep)
                 writer.add_scalar("Eval/throughput", throughput, ep)
 
-            if ep < eval_episodes-1:
+            if ep < reset_till:
                 i = 0
                 state = self.env.reset(options={'launch_job': True})[0]
 
 
-        # action_log.close()
         if enable_tensorboard:
             writer.flush()
-            writer.close()
+            if use_id is None:
+                writer.close()
+
 
         if state_log:
             state_log.flush()

@@ -82,6 +82,7 @@ def test_agent(runner, writer=None, eval_episodes=10, seed=0,
     start_ep = 0 if use_id is None else use_id
     switch_ep = eval_episodes >> 1
     for ep in tqdm(range(start_ep, eval_episodes, 1), unit='ep'):
+        print("[DEBUG/TRAIN]", str(norm_obs.shape), str(norm_next_obs.shape))
         episode_reward = 0
 
         if ep < switch_ep or use_id is None:
@@ -212,6 +213,8 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
         runner.agent.set_eval()
 
     cur_target = runner.env.target_thput
+    cur_freq = runner.env.target_freq
+    cur_freq_max = runner.env.freq_max
     start_stamp = time.time()
     while not terminated:
         if not runner.use_pid_env:
@@ -248,9 +251,15 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
 
         next_state, reward, terminated, truncated, info = runner.env.step(params, reward_type=reward_type)
 
-        if info is not None and cur_target < info['nic_speed']:
-            cur_target = info['nic_speed']
-            runner.env.set_target_thput(cur_target)
+        if info is not None:
+            if cur_target < info['nic_speed']:
+                cur_target = info['nic_speed']
+                runner.env.set_target_thput(cur_target)
+
+            if cur_freq > info['cpu_frequency_min'] or cur_freq_max < info['cpu_frequency_max']:
+                cur_freq = info['cpu_frequency_min']
+                cur_freq_max = info['cpu_frequency_max']
+                runner.env.set_target_freq(cur_freq, cur_freq_max)
 
         runner.replay_buffer.add(state, actions, next_state, reward, terminated)
 
