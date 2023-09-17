@@ -1,6 +1,8 @@
+import math
 from abc import ABC, abstractmethod
 
 import numpy as np
+import pandas as pd
 
 
 class AbstractReward(ABC):
@@ -36,32 +38,39 @@ class DefaultReward(AbstractReward):
 
 class JacobReward(AbstractReward):
     class Params(AbstractReward.AbstractParams):
-        def __init__(self, throughput, rtt, total_bytes, last_concurrency, last_parallelism, action_space_max):
+        def __init__(self, throughput, rtt, c, p, max_cc, max_p):
             # super().__init__()
             self.throughput = throughput
             self.rtt = rtt
-            self.total_bytes = total_bytes
-            self.action_space_max = action_space_max
-            # why add and not multiply?
-            self.last_action = last_parallelism + last_concurrency
+            self.hyper_rtt = 1
+            self.cc = c
+            self.max_cc = max_cc
+            self.hyper_cc = 1
+            self.p = p
+            self.hyper_p = 1
+            self.max_p = max_p
+            self.hyper_cpu_freq = .1
 
     @staticmethod
     def calculate(params: Params):
-        byte_ratio = ((params.throughput / 8) * params.rtt) / params.total_bytes
-        action_ratio = params.last_action / params.action_space_max
-
-        print("Byte Ratio=", byte_ratio,
-              " thrpt=", params.throughput, " * rtt=", params.rtt, " /totalBytes", params.total_bytes)
-        print("Action Ratio=", action_ratio, "last_action=", params.last_action, "/ action space max=",
-              params.action_space_max)
-
-        return byte_ratio / action_ratio
+        # print("Params: ", vars(params))
+        reward = params.throughput / 10000 #normalizing for a 10Gbps link
+        norm_thrpt = 2* (reward-.5) #normalizing between (-1,-1)
+        # print("Throughput: ", reward, "Mbps")
+        # pen_rtt = 1-(params.rtt/(1000 * params.hyper_rtt))
+        # reward = reward * pen_rtt
+        # print("Discounting RTT: ", reward)
+        # reward = reward / params.cc
+        # print("Discounting Conc: ", reward)
+        # reward = reward / params.p
+        # print("Discounting P: ", reward)
+        return norm_thrpt
 
 
 class ArslanReward(AbstractReward):
     class Params(AbstractReward.AbstractParams):
         def __init__(self, penalty, throughput, past_utility, concurrency, parallelism, K=1.0072, b=0.02,
-                     pos_rew=1., neg_rew=-1., pos_thresh=100, neg_thresh=-100):
+                     pos_rew=1., neg_rew=-1., pos_thresh=100, neg_thresh=-100, bwidth=1.):
             # super().__init__()
             self.penalty = penalty
             self.throughput = throughput
@@ -74,17 +83,20 @@ class ArslanReward(AbstractReward):
             self.neg_rew = neg_rew
             self.neg_thresh = neg_thresh
 
+            self.s = 1 / bwidth
+
             self.total_threads = parallelism * concurrency
 
     @staticmethod
-    def construct(x, penalty='diff_dropin', K=1.0072, b=0.02):
+    def construct(x, penalty='diff_dropin', K=1.0072, b=0.02, bwidth=1.):
+        s = 1 / bwidth
         t = np.minimum(x.read_throughput, x.write_throughput)
         p = x.parallelism.to_numpy()
         cc = x.concurrency.to_numpy()
 
         pen = x[penalty].to_numpy()
 
-        return (t / np.power(K, p * cc)) - (b * t * pen)
+        return (s * t / np.power(K, p * cc)) - (s * b * t * pen)
 
     @staticmethod
     def compare(past_utility, utility, pos_rew=1., neg_rew=-1., pos_thresh=100, neg_thresh=-100):
@@ -99,8 +111,8 @@ class ArslanReward(AbstractReward):
     @staticmethod
     def calculate(params: Params):
         # compute current utility
-        utility = params.throughput / np.power(params.K, params.total_threads)
-        utility -= (params.B * params.throughput * params.penalty)
+        utility = (params.s * params.throughput) / np.power(params.K, params.total_threads)
+        utility -= (params.B * params.throughput * params.penalty * params.s)
 
         diff = utility - params.past_u
         reward = 0.
@@ -110,3 +122,27 @@ class ArslanReward(AbstractReward):
             reward = params.neg_rew
 
         return reward, utility
+
+
+class RatioReward(AbstractReward):
+    class Params(AbstractReward.AbstractParams):
+        def __init__(self, read_throughput, write_throughput, read_over_write=True):
+            self.read_throughput = read_throughput
+            self.write_throughput = write_throughput
+            self.r_w = read_over_write
+
+    @staticmethod
+    def construct(x, r_w=True):
+        if r_w:
+            return x.read_throughput / 600.
+        else:
+            return x.write_throughput / (x.read_throughput + 1e-5)
+
+    @staticmethod
+    def calculate(params: Params):
+        if params.r_w:
+            reward = params.read_throughput / (params.write_throughput + 1e-5)
+            return reward
+        else:
+            reward = params.write_throughput / (params.read_throughput + 1e-5)
+            return reward

@@ -19,6 +19,7 @@ class OptimizerMap(object):
         self.maddpg = "MADDPG"
         self.ddpg = "DDPG"
         self.bdq = "BDQ"
+        self.thread_map = {}
 
     def get_optimizer(self, node_id):
         return self.optimizer_map[node_id]
@@ -49,23 +50,28 @@ class OptimizerMap(object):
 
             elif create_req.optimizerType == self.ddpg or create_req.optimizerType == self.bdq:
                 # if the job is from Elvis or I than it will see the old jobid and launch it.
-                trainer = Trainer.construct(create_opt_request=create_req)
+                trainer = Trainer.construct(create_req=create_req)
                 print("Created trainer; type:", create_req.optimizerType)
                 self.node_id_to_optimizer[create_req.node_id] = create_req.optimizerType
                 self.optimizer_map[create_req.node_id] = trainer
                 thread = threading.Thread(target=trainer.train)
+                self.thread_map[create_req.node_id] = thread
                 thread.start()
-                return True
-
             else:
                 return False
+
+        # calling train() directly blocks the transfer service
         else:
             if create_req.optimizerType == self.ddpg or create_req.optimizerType == self.bdq:
                 trainer = self.optimizer_map[create_req.node_id]
                 # update the create optimizer to be the last one from the TS.
                 trainer.set_create_request(create_opt_req=create_req)
-                # if not trainer.training_flag:
-                trainer.train(launch_job=create_req.launch_job)
+
+                if trainer.deploy_mode:
+                    thread = threading.Thread(target=trainer.train)
+                    self.thread_map[create_req.node_id] = thread
+                    thread.start()
+
             print("Optimizer already exists for", create_req.node_id)
             return False
 
@@ -106,14 +112,14 @@ class OptimizerMap(object):
             env = self.optimizer_map[delete_req.node_id][1]
             env.reset()  # this reset should actually construct a new to run.
 
-        elif self.node_id_to_optimizer[delete_req.node_id] == self.ddpg:
-            trainer = self.optimizer_map[delete_req.node_id]
-            if trainer.training_flag:
-                trainer.env.reset(options={'launch_job': True})
-                return
-            else:
-                trainer.close()
-                del self.optimizer_map[delete_req.node_id]
+        # elif self.node_id_to_optimizer[delete_req.node_id] == self.ddpg:
+            # trainer = self.optimizer_map[delete_req.node_id]
+            # if trainer.training_flag:
+            #     trainer.env.reset(options={'launch_job': True})
+            #     return
+            # else:
+            #     trainer.close()
+            #     del self.optimizer_map[delete_req.node_id]
 
         return delete_req.node_id
 

@@ -32,11 +32,14 @@ pd.set_option('display.colheader_justify', 'left')
 pd.set_option('display.precision', 5)
 
 
-class InfluxEnv(gym.Env):
+def construct_reward():
+    pass
 
-    def __init__(self, create_opt_req: CreateOptimizerRequest,
+class PIDEnv(gym.Env):
+
+    def __init__(self, create_opt_req: CreateOptimizerRequest, target_thput, config=None,
                  action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns=[]):
-        super(InfluxEnv, self).__init__()
+        super(PIDEnv, self).__init__()
         self.replay_buffer = None
         self.create_opt_request = create_opt_req
         print(create_opt_req.node_id.split("-"))
@@ -51,12 +54,16 @@ class InfluxEnv(gym.Env):
             self.data_columns = observation_columns
         else:
             self.data_columns = self.space_df.columns.values
+
+        self.state_columns = ['parallelism', 'concurrency']
+
         if action_space_discrete:
-            self.action_space = spaces.Discrete(3)  # drop stay increase
+            # self.action_space = spaces.Discrete(3)  # drop stay increase
+            self.action_space = spaces.Discrete(4)
         else:
             self.action_space = spaces.Box(low=-1, high=1, shape=(2,))  # for now cc, p only
         # So this is probably not defined totally properly as I assume dimensions are 0-infinity
-        self.observation_space = spaces.Box(low=0, high=np.inf, shape=(len(self.data_columns),))
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(5,))
         self.past_rewards = []
         self.past_actions = []
         self.render_mode = render_mode
@@ -64,7 +71,53 @@ class InfluxEnv(gym.Env):
         self.drop_in = 0
         self.past_utility = 0
 
-        print("Finished constructing the Influx Gym Env")
+        self.target_thput = target_thput
+        self.target_freq = 1000. # MHz
+        self.freq_max = 4000.
+
+        self.error_0 = 0.
+        self.dt_0 = 50.
+        
+        self.error_1 = 0.
+        self.dt_1 = 50.
+        
+        self.error_2 = 0.
+        self.dt_2 = 50.
+
+        self.mix = 0.
+        if config is not None:
+            self.mix = config['pid_frequency_mix']
+
+        self.max_par = 16
+
+        self.max_err = (1. - self.mix) * self.target_thput + (self.mix * 3000.)
+        self.max_sum = 300 * self.max_err
+        self.max_diff = (0.75 * self.max_err) / 4
+
+        print("Finished constructing the PID Gym Env")
+
+    def set_target_thput(self, target_thput):
+        """
+        This function recalculates the max err, integral and derivative
+        """
+        print("[PID] Setting target thput to", str(target_thput))
+        self.target_thput = target_thput
+
+        self.max_err = (1. - self.mix) * self.target_thput + self.mix * (self.freq_max - self.target_freq)
+        self.max_sum = 300 * self.max_err
+        self.max_diff = (0.75 * self.max_err) / 4
+
+    def set_target_freq(self, target_freq, freq_max):
+        """
+        This function recalculates max err, integral and derivative
+        """
+        print("[PID] Setting target frequency to [", str(target_freq), str(freq_max), "]")
+        self.target_freq = target_freq
+        self.freq_max = freq_max
+
+        self.max_err = (1. - self.mix) * self.target_thput + self.mix * (self.freq_max - self.target_freq)
+        self.max_sum = 300 * self.max_err
+        self.max_diff = (0.75 * self.max_err) / 4
 
     """
     Stepping the env and a live transfer behind the scenes.
@@ -77,21 +130,6 @@ class InfluxEnv(gym.Env):
     """
 
     def step(self, action: list, reward_type=None):
-        print("Step: action:", action)
-        # df = self.influx_client.query_space("-2m")
-        # self.space_df = pd.concat([self.space_df, df])
-        # last_row = self.space_df.tail(n=1)
-        # observation = last_row[self.data_columns]
-        # if self.create_opt_request.db_type == "hsql":
-        #     terminated, _ = oh.query_if_job_done_direct(self.job_id)
-        # else:
-        #     terminated, _ = oh.query_if_job_done(self.job_id)
-
-        # if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
-        #     1] > self.create_opt_request.max_parallelism:
-        #     reward = action[0] * action[1]
-        #     return observation, reward, terminated, None, None
-
         conc_nan = True
         para_nan = True
 
@@ -105,14 +143,14 @@ class InfluxEnv(gym.Env):
             else:
                 terminated, _ = oh.query_if_job_done(self.job_id)
 
-            if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
-                    1] > self.create_opt_request.max_parallelism:
-                reward = action[0] * action[1]
-                return observation, reward, terminated, None, None
+            # if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
+            #         1] > self.create_opt_request.max_parallelism:
+            #     reward = action[0] * action[1]
+            #     return observation, reward, terminated, None, None
 
             conc_nan = last_row['concurrency'].isna().any()
             para_nan = last_row['parallelism'].isna().any()
-            time.sleep(3)
+            time.sleep(2)
             
 
         # submit action to take with TS
@@ -121,6 +159,10 @@ class InfluxEnv(gym.Env):
                 transfer_node_name=self.create_opt_request.node_id,
                 cc=action[0], p=action[1], pp=1, chunkSize=0
             )
+        else:
+            # introduce delay to prevent param spam
+            print("[PID] Duplicate; PID sleeping")
+            time.sleep(10)
 
         # block until action applies to TS
         terminated = False
@@ -128,60 +170,27 @@ class InfluxEnv(gym.Env):
         count = 0
         fail_count = 0
 
+        start_time = time.time()
+        
         while True:
-            print("Blocking till action: ", action)
+            # print("Blocking till action: ", action)
             df = self.influx_client.query_space("-30s")
             if not set(self.data_columns).issubset(df.columns):
                 time.sleep(1)
                 continue
-
             # For every query we want to add to the buffer bc its more data on transfer.
-            for i in range(df.shape[0] - 1):
+            for i in range(df.shape[0]):
                 current_row = df.iloc[i]
                 obs = current_row[self.data_columns]
                 obs_action = obs[['parallelism', 'concurrency']]
-                next_obs = df.iloc[i + 1][self.data_columns]
-                thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=current_row)
-                diff_drop_in = current_row['dropin'] - self.drop_in
+                # next_obs = df.iloc[i + 1][self.data_columns]
+                # thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=current_row)
+                # thrpt = obs['read_throughput']
+                # diff_drop_in = current_row['dropin'] - self.drop_in
 
-                if reward_type == 'ratio':
-                    reward_params = RatioReward.Params(
-                        read_throughput=obs.read_throughput,
-                        write_throughput=600.
-                    )
-                    reward = RatioReward.calculate(reward_params)
-
-                elif reward_type == 'arslan':
-                    reward_params = ArslanReward.Params(
-                        penalty=diff_drop_in,
-                        throughput=thrpt,
-                        past_utility=self.past_utility,
-                        concurrency=obs['concurrency'],
-                        parallelism=obs['parallelism'],
-                        bwidth=0.1,
-                        pos_thresh=300,
-                        neg_thresh=-600
-                    )
-
-                    reward, self.past_utility = ArslanReward.calculate(reward_params)
-                    self.drop_in += diff_drop_in
-                    self.past_actions.append(action)
-                else:
-                    reward_params = JacobReward.Params(
-                        throughput=thrpt,
-                        rtt=rtt,
-                        c=current_row['concurrency'],
-                        max_cc=self.create_opt_request.max_concurrency,
-                        p=current_row['parallelism'],
-                        max_p=self.create_opt_request.max_parallelism,
-                        # max_cpu_freq=current_row['cpu_frequency_max'],
-                        # min_cpu_freq=current_row['cpu_frequency_min'],
-                        # cpu_freq=current_row['cpu_frequency_current']
-                    )
-                    reward = JacobReward.calculate(reward_params)
                 # print("Intermediate Step reward: ", reward)
-                if self.replay_buffer is not None:
-                    self.replay_buffer.add(obs, action, next_obs, reward, terminated)
+                # if self.replay_buffer is not None:
+                #     self.replay_buffer.add(obs, action, next_obs, reward, terminated)
 
                 if obs_action['concurrency'] == action[0] and obs_action['parallelism'] == action[1]:
                     count += 1
@@ -195,42 +204,88 @@ class InfluxEnv(gym.Env):
                     )
                     fail_count = 0
 
-            last_row = df.tail(n=1)
-            observation = last_row[self.data_columns]
-            self.past_rewards.append(reward)
-
             if self.create_opt_request.db_type == "hsql":
                 terminated, _ = oh.query_if_job_done_direct(self.job_id)
             else:
                 terminated, _ = oh.query_if_job_done(self.job_id)
 
-            if count >= 1 or terminated: break
-            time.sleep(3)
+            if count >= 2 or terminated: break
+            time.sleep(2)
 
-        if terminated:
-            print("JobId: ", self.job_id, " job is done")
+        dt = time.time() - start_time
+        last_row = df.tail(n=1)
+        all_observation = last_row[self.data_columns]
+        
+        err = self.target_thput - all_observation['read_throughput'].to_numpy()[-1]
+        err = (1. - self.mix) * err + self.mix * (all_observation['cpu_frequency_current'] - self.target_freq)
 
-        return observation, reward, terminated, None, None
+        err = err.to_numpy()[0]
+        err_sum = self.error_1 + (err * dt)
+        err_diff = (err - self.error_2) / dt
+
+        self.error_2 = self.error_1
+        self.error_1 = self.error_0
+        self.error_0 = err
+
+        self.dt_2 = self.dt_1
+        self.dt_1 = self.dt_0
+        self.dt_0 = dt
+
+        # err = err - self.error_1
+        # err_diff = err_diff + (self.error_2 / self.dt_2) - 2 * (self.error_1 / self.dt_1)
+
+        err /= self.max_err
+        err_sum /= self.max_sum
+        err_diff /= self.max_diff
+
+        reward = 1. - err
+
+        observation = all_observation[['parallelism', 'concurrency']] / self.max_par
+        # observation = observation / self.max_par
+        
+        # observation.loc[:, 'parallelism'] = observation.loc[:, 'parallelism'] / self.max_par
+        # observation.loc[:, 'concurrency'] = observation.loc[:, 'concurrency'] / self.max_par
+
+        # print(err, err_sum, err_diff)
+        observation.insert(0, "err", err)
+        observation.insert(1, "err_sum", err_sum)
+        observation.insert(2, "err_diff", err_diff)
+            
+        self.past_rewards.append(reward)
+
+        # if terminated:
+        #     print("JobId: ", self.job_id, " job is done")
+
+        # print(observation)
+        info = {
+            'nic_speed': last_row['nic_speed'].to_numpy()[0],
+            'read_throughput': last_row['read_throughput'].to_numpy()[0],
+            'cpu_frequency_min': last_row['cpu_frequency_min'].to_numpy()[0],
+            'cpu_frequency_max': last_row['cpu_frequency_max'].to_numpy()[0],
+            'cpu_frequency_current': last_row['cpu_frequency_current'].to_numpy()[0]
+        }
+
+        return observation, reward, terminated, None, info
 
     """
     So right now this does not launch another job. It simply resets the observation space to the last jobs influx entries
     Should only be called if there was a termination.
     """
 
-    def reset(self, seed=None, options={'launch_job': False}, optimizer="DDPG"):
+    def reset(self, seed=None, options={'launch_job': False}, optimizer="BDQ"):
         self.past_utility = self.past_utility / 4
         if options['launch_job']:
             if self.create_opt_request.db_type == "hsql":
                 first_meta_data = oh.query_batch_job_direct(self.job_id)
             else:
                 first_meta_data = oh.query_job_batch_obj(self.job_id)
-            print("InfluxEnv: relaunching job: ", first_meta_data['jobParameters'])
-            oh.submit_transfer_request(first_meta_data, optimizer="DDPG")
+            # print("InfluxEnv: relaunching job: ", first_meta_data['jobParameters'])
+            oh.submit_transfer_request(first_meta_data, optimizer="BDQ")
             time.sleep(10)
 
-        if len(self.past_actions) > 0 and len(self.past_rewards) > 0:
-            print("Avg reward: ", np.mean(self.past_rewards))
-            print("Actions to Count: ", np.unique(self.past_actions, return_counts=True))
+        # if len(self.past_actions) > 0 and len(self.past_rewards) > 0:
+        #     print("Avg reward: ", np.mean(self.past_rewards))
+        #     print("Actions to Count: ", np.unique(self.past_actions, return_counts=True))
 
         self.past_actions.clear()
         self.past_rewards.clear()
@@ -238,7 +293,40 @@ class InfluxEnv(gym.Env):
         newer_df = self.influx_client.query_space("-5m")  # last min is 2 points.
         self.space_df = pd.concat([self.space_df, newer_df])
         self.space_df.drop_duplicates(inplace=True)
-        obs = self.space_df[self.data_columns].tail(n=1)
+        obs = self.space_df[self.state_columns].tail(n=1)
+
+        err = 0 # self.target_thput - obs['read_throughput'].to_numpy()[-1]
+        err_sum = err
+        err_diff = err
+
+        if np.isnan(err_sum):
+            self.error_1 = 0.
+        else:
+            self.error_1 = err_sum
+
+        if np.isnan(err):
+            self.error_2 = 0.
+        else:
+            self.error_2 = err
+
+        self.error_0 = 0.
+        self.dt_0 = 50.
+        self.dt_1 = 50.
+        self.dt_2 = 50.
+
+        obs = obs[['parallelism', 'concurrency']]
+
+        # err /= self.max_err
+        # err_sum /= self.max_sum
+        # err_diff /= self.max_diff
+        
+        obs['parallelism'] = obs['parallelism'] / self.max_par
+        obs['concurrency'] = obs['concurrency'] / self.max_par
+
+        obs.insert(0, "err", err)
+        obs.insert(1, "err_sum", err_sum)
+        obs.insert(2, "err_diff", err_diff)
+
         return obs, {}
 
     """

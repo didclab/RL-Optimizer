@@ -98,7 +98,7 @@ Sends an actions to the transfer node we configured the influx client with
 """
 monitor_ip = os.getenv("MONITORING_SERVICE_IP", default="localhost")
 sched_ip = os.getenv("TRANSFER_SCHEDULER_IP", default="localhost")
-transfer_service_ip = os.getenv("TRANSFER_SERVICE_URL", default="localhost")
+transfer_service_url = os.getenv("TRANSFER_SERVICE_URL", default="http://127.0.0.1:8092")
 
 
 def send_application_params_tuple(cc, p, pp, transfer_node_name, chunkSize=0):
@@ -124,7 +124,10 @@ queries if the jobId is done. JobId we get from influx information.
 
 
 def query_if_job_done(jobId):
-    meta_data = query_job_batch_obj(jobId)
+    if hsql_enabled:
+        meta_data = query_batch_job_direct(jobId)
+    else:
+        meta_data = query_job_batch_obj(jobId)
     status = meta_data['status']
     if status == COMPLETED or status == FAILED or status == ABANDONED:
         return True, meta_data
@@ -133,7 +136,10 @@ def query_if_job_done(jobId):
 
 
 def query_if_job_running(jobId):
-    meta_data = query_job_batch_obj(jobId)
+    if hsql_enabled:
+        meta_data = query_batch_job_direct(jobId)
+    else:
+        meta_data = query_job_batch_obj(jobId)
     status = meta_data['status']
     if status == STARTING or status == STARTED or status == RUNNING:
         return True, meta_data
@@ -171,8 +177,8 @@ def transform_batch_info_json_to_transfer_request(batch_info_json):
         # look up the stepName pojo in job params
         entityInfo = str(jobParameters[step_name])
         comma_separated = entityInfo.split(",")
-        file_id = comma_separated[0].split("id=")[1].strip()
-        path = comma_separated[1].split("path=")[1].strip()
+        file_id = comma_separated[0].split("id=")[1].strip()[1:]
+        path = comma_separated[1].split("path=")[1].strip()[1:]
         size = comma_separated[2].split("size=")[1].strip()
         chunkSize = comma_separated[3].split("chunkSize=")[1].strip()
         chunkSize = chunkSize[:-1].strip()
@@ -196,12 +202,31 @@ def transform_batch_info_json_to_transfer_request(batch_info_json):
         ownerId=jobParameters['ownerId'], source=source, dest=dest, TransfOp=to)
     return tr
 
+
 def query_batch_job_direct(jobId):
-    url = "{}/api/v1/job/execution".format(transfer_service_ip)
+    url = "{}/api/v1/job/execution".format(transfer_service_url)
     params = {"jobId": jobId}
     return requests.get(url=url, params=params, headers=headers).json()
 
+
 def query_job_ids_direct():
-    url = "{}/api/v1/job/ids".format(transfer_service_ip)
+    url = "{}/api/v1/job/ids".format(transfer_service_url)
     return requests.get(url=url, headers=headers).json()
 
+
+def query_if_job_done_direct(jobId):
+    meta_data = query_batch_job_direct(jobId)
+    status = meta_data['status']
+    if status == COMPLETED or status == FAILED or status == ABANDONED:
+        return True, meta_data
+    else:
+        return False, meta_data
+
+
+def query_if_job_running_direct(jobId):
+    meta_data = query_batch_job_direct(jobId)
+    status = meta_data['status']
+    if status == STARTING or status == STARTED or status == RUNNING:
+        return True, meta_data
+    else:
+        return False, meta_data

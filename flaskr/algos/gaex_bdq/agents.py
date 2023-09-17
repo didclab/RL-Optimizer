@@ -4,28 +4,23 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 
-# from models import PreNet, AdvantageNet, StateNet
-from .models import PreNet, AdvantageNet, StateNet
-# from algos.abstract_agent import AbstractAgent
-from ..abstract_agent import AbstractAgent
+from models import DiscriminatorNet, GeneratorNet
+from models import PreNet, AdvantageNet, StateNet
+from algos.abstract_agent import AbstractAgent
 from copy import deepcopy
 
 
-class BDQAgent(AbstractAgent, object):
+class GAEXAgent(AbstractAgent, object):
     """
-    Branching Deep-Q Agent. Inherits AbstractAgent
+    Generative Adversarial Exploring BDQ. Inherits AbstractAgent
     """
 
     def __init__(self, state_dim, action_dims: list,
-                 device, num_actions=1, discount=0.99, tau=0.005, decay=0.9966, evaluate=False,
-                 writer=None) -> None:
+                 device, num_actions=1, discount=0.99, tau=0.005, decay=0.9966) -> None:
         super().__init__()
         self.device = device
         self.discount = discount
         self.tau = tau
-
-        self.writer = writer
-        self.call_count = 0
 
         """
         Index 0: PreNet Online
@@ -38,7 +33,7 @@ class BDQAgent(AbstractAgent, object):
         self.num_actions = num_actions
         self.action_dims = action_dims
 
-        self.all_nets.append(PreNet(state_dim, eval=evaluate).to(device))
+        self.all_nets.append(PreNet(state_dim).to(device))
         self.all_targets.append(deepcopy(self.all_nets[0]))
         self.pre_net = self.all_nets[0]
         self.pre_target = self.all_targets[0]
@@ -47,6 +42,9 @@ class BDQAgent(AbstractAgent, object):
         self.all_targets.append(deepcopy(self.all_nets[1]))
         self.state_net = self.all_nets[1]
         self.state_target = self.all_targets[1]
+
+        self.discriminate_net = DiscriminatorNet(state_dim).to(device)
+        self.generate_net = GeneratorNet(state_dim).to(device)
 
         for i in range(self.num_actions):
             self.all_nets.append(AdvantageNet(action_dims[i]).to(device))
@@ -63,26 +61,29 @@ class BDQAgent(AbstractAgent, object):
         self.optimizer_state = optim.Adam(self.state_net.parameters(), lr=1e-3)
         self.optimizer_advs = []
         for i in range(self.num_actions):
-            self.optimizer_advs.append(optim.Adam(
-                self.adv_nets[i].parameters(), lr=1e-3))
+            self.optimizer_advs.append(optim.Adam(self.adv_nets[i].parameters(), lr=1e-3))
+
+        self.optimizer_disc = optim.Adam(self.discriminate_net.parameters(), lr=1e-4, betas=(0.5, 0.999))
+        self.optimizer_gen = optim.Adam(self.generate_net.parameters(), lr=1e-4, betas=(0.5, 0.999))
 
         self.epsilon = 1.
+        self.gan_update_freq = 100
+        self.step_count = 0
         # rated for 2000 episodes
         self.decay = decay
+        # for intrinsic reward
+        self.beta = 20.
+        self.nz = state_dim
+        self.criterion = nn.BCELoss()
+
+        self.G_loss = []
+        self.D_loss = []
 
     def update_epsilon(self):
         self.epsilon = max(0.005, self.epsilon * self.decay)
 
-    def set_eval(self):
-        self.epsilon = 0.
-        self.pre_net.eval()
-        self.state_net.eval()
-
-        for adv_net in self.adv_nets:
-            adv_net.eval()
-        
-    def select_action(self, state, bypass_epsilon=False):
-        if np.random.random() <= self.epsilon and not bypass_epsilon:
+    def select_action(self, state):
+        if np.random.random() <= self.epsilon:
             # needs to be improved but will do for now
             return np.array([np.random.randint(0, self.action_dims[i]) for i in range(self.num_actions)])
 
@@ -130,7 +131,7 @@ class BDQAgent(AbstractAgent, object):
 
         q_values_actual = torch.stack(q_values_mat)
         q_values_actual = q_values_actual.squeeze(-1)
-        
+
         """
         TARGET PART 1
         """
@@ -141,8 +142,8 @@ class BDQAgent(AbstractAgent, object):
                 act = torch.randint(0, self.action_dims[i], size=(rewards.shape[0], 1), device=self.device)
                 acts.append(act)
             max_actions = torch.stack(acts)
-        
-        else:    
+
+        else:
             pre_state = self.pre_net(next_state)
 
             state_value = self.state_net(pre_state)
@@ -182,27 +183,81 @@ class BDQAgent(AbstractAgent, object):
 
         all_q = self.discount * (q_values_mat.squeeze(-1) / self.num_actions)
         all_q = all_q * not_dones.transpose(0, 1)
-        
+
         rewards = rewards.transpose(0, 1)
-        
+
         # target = rewards + sum_q
         all_target = rewards + all_q
         # target = target.detach()
         all_target = all_target.detach()
 
         # q_values_avg = q_values_actual.sum(0).unsqueeze(0) / self.num_actions
-        
+
         # loss = F.mse_loss(q_values_avg, target)
         loss = F.mse_loss(q_values_actual, all_target)
         return loss, q_values_actual, all_target
 
+    def compute_intrinsic_reward(self, prob_visited: torch.Tensor) -> torch.Tensor:
+        # i_reward = self.beta * torch.square((1 - prob_visited))
+        i_reward = self.beta * torch.pow((1 - prob_visited), 2)
+        return i_reward.detach()
+
+    def update_disc_gen(self, batch_size, prob_visited):
+        # print("updating GAN")
+        real_label = 1.
+        fake_label = 0.
+        """
+        First update theta_D
+        """
+        self.optimizer_disc.zero_grad()
+        label = torch.full((batch_size,), real_label, dtype=torch.float, device=self.device)
+        output = prob_visited.view(-1)
+        D_real = self.criterion(output, label)
+        D_real.backward()
+
+        noise = torch.randn(batch_size, self.nz, device=self.device)
+        self.optimizer_gen.zero_grad()
+        fake = self.generate_net(noise)
+        label.fill_(fake_label)
+
+        output = self.discriminate_net(fake.detach()).view(-1)
+        D_fake = self.criterion(output, label)
+        D_fake.backward()
+        self.optimizer_disc.step()
+
+        """
+        Now update theta_G
+        """
+        label.fill_(real_label)
+        output = self.discriminate_net(fake).view(-1)
+        G_err = self.criterion(output, label)
+
+        G_err.backward()
+        self.optimizer_gen.step()
+
+        self.D_loss.append((D_fake + D_real).item())
+        self.G_loss.append(G_err.item())
+
     def train(self, replay_buffer, batch_size=64):
         state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
 
-        loss, _, _ = self.compute_target_loss(state, next_state, action, reward, not_done)
-        if self.writer is not None:
-            self.writer.add_scalar("Train/loss", loss, self.call_count)
-            self.call_count += 1
+        if self.step_count == 0:
+            self.optimizer_disc.zero_grad()
+        prob_visited = self.discriminate_net(next_state)
+        i_reward = self.compute_intrinsic_reward(prob_visited.detach())
+        
+        if self.step_count == 23:
+            prob_stats = np.array([prob_visited.min().item(), prob_visited.max().item(), prob_visited.mean().item()])
+            intrin_stats = np.array([i_reward.min().item(), i_reward.max().item(), i_reward.mean().item()])
+
+            prob_stats = np.round(prob_stats, decimals=2)
+            intrin_stats = np.round(intrin_stats, decimals=2)
+            
+            print("[prob_visited] Min:", prob_stats[0], "| Max:", prob_stats[1], "| Mean:", prob_stats[2])
+            print("[i_reward] Min:", intrin_stats[0], "| Max:", intrin_stats[1], "| Mean:", intrin_stats[2])
+            print()
+
+        loss, _, _ = self.compute_target_loss(state, next_state, action, reward + i_reward, not_done)
 
         # self.optimizer.zero_grad()
         self.optimizer_pre.zero_grad()
@@ -217,11 +272,18 @@ class BDQAgent(AbstractAgent, object):
         self.optimizer_state.step()
         self.optimizer_pre.step()
 
-        BDQAgent.soft_update(self.pre_net, self.pre_target, self.tau)
-        BDQAgent.soft_update(self.state_net, self.state_target, self.tau)
+        GAEXAgent.soft_update(self.pre_net, self.pre_target, self.tau)
+        GAEXAgent.soft_update(self.state_net, self.state_target, self.tau)
         for i in range(self.num_actions):
-            BDQAgent.soft_update(
-                self.adv_targets[i], self.adv_nets[i], self.tau)
+            GAEXAgent.soft_update(self.adv_targets[i], self.adv_nets[i], self.tau)
+
+        if self.step_count == 0:
+            self.update_disc_gen(batch_size, prob_visited)
+
+        if self.step_count < self.gan_update_freq:
+            self.step_count += 1
+        else:
+            self.step_count = 0
 
     def save_checkpoint(self, filename):
         torch.save(self.pre_net.state_dict(), filename + '_pre_net')
@@ -230,11 +292,10 @@ class BDQAgent(AbstractAgent, object):
         for i in range(self.num_actions):
             torch.save(self.adv_nets[i].state_dict(),
                        filename + '_adv_net_' + str(i))
-            torch.save(self.optimizer_advs[i].state_dict(),
-                       filename + '_adv_optimizer_' + str(i))
 
-        torch.save(self.optimizer_pre.state_dict(), filename + '_pre_optimizer')
-        torch.save(self.optimizer_state.state_dict(), filename + '_state_optimizer')
+        # torch.save(self.optimizer.state_dict(), filename + '_bdq_optimizer')
+        torch.save(self.discriminate_net.state_dict(), filename + '_disc_net')
+        torch.save(self.generate_net.state_dict(), filename + '_gen_net')
 
     def load_checkpoint(self, filename):
         device = self.device
@@ -264,18 +325,11 @@ class BDQAgent(AbstractAgent, object):
             adjusted_i = i + 2
             self.all_nets[adjusted_i].load_state_dict(
                 torch.load(
-                    filename + '_adv_net_' + str(i),
+                    filename + '_adv_net_' + i,
                     map_location=torch.device(device)
                 )
             )
             self.all_targets[adjusted_i] = deepcopy(self.all_nets[adjusted_i])
-
-            self.optimizer_advs[i].load_state_dict(
-                torch.load(
-                    filename + '_adv_optimizer_' + str(i),
-                    map_location=torch.device(device)
-                )
-            )
 
         self.adv_nets = self.all_nets[2:]
         self.adv_targets = self.all_nets[2:]
@@ -283,21 +337,7 @@ class BDQAgent(AbstractAgent, object):
         # load optimizer
         # prefer to reconstruct optimizer for now because of device shenanigans
         self.module_list = nn.ModuleList(self.all_nets)
-        # self.optimizer = torch.optim.Adam(self.module_list.parameters())
-        self.optimizer_pre.load_state_dict(
-            torch.load(
-                filename + '_pre_optimizer',
-                map_location=torch.device(device)
-            )
-        )
-
-        self.optimizer_state.load_state_dict(
-            torch.load(
-                filename + '_state_optimizer',
-                map_location=torch.device(device)
-            )
-        )
-        
+        self.optimizer = torch.optim.Adam(self.module_list.parameters())
 
     def get_tau(self):
         return self.tau

@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from .models import Actor, Critic
+# from models import Actor, Critic
 
 
 #
@@ -11,18 +12,20 @@ from .models import Actor, Critic
 #
 class DDPGAgent(object):
 
-    def __init__(self, state_dim, action_dim, max_action, device, discount=0.99, tau=0.005):
+    def __init__(self, state_dim, action_dim, max_action, device, discount=0.9, tau=0.005):
         self.device = device
         self.discount = discount
         self.tau = tau
         self.actor = Actor(state_dim, action_dim, max_action).to(device)
-        self.actor_target = deepcopy(self.actor)
+        self.actor_target = deepcopy(self.actor).to(self.device)
+        # self.actor_optimizer = torch.optim.Adagrad(self.actor.parameters(), lr=.001)
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters())
         self.critic = Critic(state_dim, action_dim).to(device)
-        self.critic_target = deepcopy(self.critic)
+        self.critic_target = deepcopy(self.critic).to(self.device)
+        # self.critic_optimizer = torch.optim.Adagrad(self.critic.parameters())
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters())
 
-    def select_action(self, state):
+    def select_action(self, state, bypass_epsilon=False):
         state = torch.FloatTensor(state.reshape(1, -1)).to(self.device)
         return self.actor(state).cpu().data.numpy().flatten()
         #
@@ -66,7 +69,11 @@ class DDPGAgent(object):
         )
         self.actor_target = deepcopy(self.actor)
 
-    def train(self, replay_buffer, batch_size=64):
+    def set_eval(self):
+        self.critic.eval()
+        self.actor.eval()
+
+    def train(self, replay_buffer, batch_size=256):
         state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
         target_q = self.critic_target(next_state, self.actor_target(next_state))
         target_q = reward + (not_done * self.discount * target_q).detach()

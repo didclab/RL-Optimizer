@@ -6,19 +6,22 @@ class Actor(torch.nn.Module):
 
     def __init__(self, state_dimension, action_dimension, max_action):
         super(Actor, self).__init__()
-        self.input_dim = torch.nn.LayerNorm(state_dimension)
+        # self.input_dim = torch.nn.LayerNorm(state_dimension)
         self.l1 = torch.nn.Linear(state_dimension, 400)
         self.l2 = torch.nn.Linear(400, 300)
         self.l3 = torch.nn.Linear(300, action_dimension)
-        # self.max_action = max_action
+        self.max_action = max_action
 
     def forward(self, batch_state):
-        a = F.relu(self.input_dim(batch_state))
-        a = F.relu(self.l1(a))
+        # a = F.relu(self.input_dim(batch_state))
+        a = F.relu(self.l1(batch_state))
         a = F.relu(self.l2(a))
-        # return self.max_action * torch.tanh(self.l3(a))
-        return self.l3(a)
-        # return torch.tanh(self.l3(a))
+        # a = F.relu(self.l3(a))
+        # a = torch.sigmoid(a)  # Apply sigmoid activation
+        a = torch.tanh(self.l3(a))
+        # scaled_output = (self.max_action - 1) * a + 1  # Scale and shift the output
+        # return scaled_output
+        return a
 
 
 class Critic(torch.nn.Module):
