@@ -24,7 +24,7 @@ class AbstractAgent(ABC):
         pass
 
     @abstractmethod
-    def select_action(self, state):
+    def select_action(self, state, bypass_epsilon=False):
         pass
 
     @abstractmethod

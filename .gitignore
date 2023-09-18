@@ -154,6 +154,11 @@ cython_debug/
 .idea/
 
 # Elvis' extras
+*~
+checkpoint/
+in-progress/
+old-runs/
+prototype*
 junk/
 logs/
 runs/
@@ -166,6 +171,8 @@ data/
 main.py
 neural_nets.py
 agent_memory.py
+*.log
 *.pt
 *.json
+nohup.out
 pickles/

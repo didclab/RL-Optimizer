@@ -1,12 +1,13 @@
 {
     "start_from_chkpt": true,
+    "tensorboard_path": "./runs/train_pid5_bdq/",
     
     "use_pid":true,
     "pid_frequency_mix": 0.4,
 
     "pretrain": false,
     "data": "data/balanced_influx_data.csv",
-    "savefile_name": "BDQ_pid5_env",
+    "savefile_name": "BDQ_pid5_env_debug",
 
     "train_num_episodes": 1500,
     "train_eval_frequency": 100,

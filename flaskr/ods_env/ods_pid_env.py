@@ -35,6 +35,7 @@ pd.set_option('display.precision', 5)
 def construct_reward():
     pass
 
+
 class PIDEnv(gym.Env):
 
     def __init__(self, create_opt_req: CreateOptimizerRequest, target_thput, config=None,
@@ -72,15 +73,15 @@ class PIDEnv(gym.Env):
         self.past_utility = 0
 
         self.target_thput = target_thput
-        self.target_freq = 1000. # MHz
+        self.target_freq = 1000.  # MHz
         self.freq_max = 4000.
 
         self.error_0 = 0.
         self.dt_0 = 50.
-        
+
         self.error_1 = 0.
         self.dt_1 = 50.
-        
+
         self.error_2 = 0.
         self.dt_2 = 50.
 
@@ -133,6 +134,7 @@ class PIDEnv(gym.Env):
         conc_nan = True
         para_nan = True
 
+        last_row = None
         while conc_nan or para_nan:
             df = self.influx_client.query_space("-2m")
             self.space_df = pd.concat([self.space_df, df])
@@ -143,15 +145,9 @@ class PIDEnv(gym.Env):
             else:
                 terminated, _ = oh.query_if_job_done(self.job_id)
 
-            # if action[0] < 1 or action[1] < 1 or action[0] > self.create_opt_request.max_concurrency or action[
-            #         1] > self.create_opt_request.max_parallelism:
-            #     reward = action[0] * action[1]
-            #     return observation, reward, terminated, None, None
-
             conc_nan = last_row['concurrency'].isna().any()
             para_nan = last_row['parallelism'].isna().any()
             time.sleep(2)
-            
 
         # submit action to take with TS
         if int(last_row['concurrency'].iloc[0]) != action[0] or int(last_row['parallelism'].iloc[0]) != action[1]:
@@ -171,7 +167,7 @@ class PIDEnv(gym.Env):
         fail_count = 0
 
         start_time = time.time()
-        
+
         while True:
             # print("Blocking till action: ", action)
             df = self.influx_client.query_space("-30s")
@@ -183,14 +179,6 @@ class PIDEnv(gym.Env):
                 current_row = df.iloc[i]
                 obs = current_row[self.data_columns]
                 obs_action = obs[['parallelism', 'concurrency']]
-                # next_obs = df.iloc[i + 1][self.data_columns]
-                # thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=current_row)
-                # thrpt = obs['read_throughput']
-                # diff_drop_in = current_row['dropin'] - self.drop_in
-
-                # print("Intermediate Step reward: ", reward)
-                # if self.replay_buffer is not None:
-                #     self.replay_buffer.add(obs, action, next_obs, reward, terminated)
 
                 if obs_action['concurrency'] == action[0] and obs_action['parallelism'] == action[1]:
                     count += 1
@@ -215,7 +203,7 @@ class PIDEnv(gym.Env):
         dt = time.time() - start_time
         last_row = df.tail(n=1)
         all_observation = last_row[self.data_columns]
-        
+
         err = self.target_thput - all_observation['read_throughput'].to_numpy()[-1]
         err = (1. - self.mix) * err + self.mix * (all_observation['cpu_frequency_current'] - self.target_freq)
 
@@ -242,7 +230,7 @@ class PIDEnv(gym.Env):
 
         observation = all_observation[['parallelism', 'concurrency']] / self.max_par
         # observation = observation / self.max_par
-        
+
         # observation.loc[:, 'parallelism'] = observation.loc[:, 'parallelism'] / self.max_par
         # observation.loc[:, 'concurrency'] = observation.loc[:, 'concurrency'] / self.max_par
 
@@ -250,7 +238,7 @@ class PIDEnv(gym.Env):
         observation.insert(0, "err", err)
         observation.insert(1, "err_sum", err_sum)
         observation.insert(2, "err_diff", err_diff)
-            
+
         self.past_rewards.append(reward)
 
         # if terminated:
@@ -295,7 +283,7 @@ class PIDEnv(gym.Env):
         self.space_df.drop_duplicates(inplace=True)
         obs = self.space_df[self.state_columns].tail(n=1)
 
-        err = 0 # self.target_thput - obs['read_throughput'].to_numpy()[-1]
+        err = 0  # self.target_thput - obs['read_throughput'].to_numpy()[-1]
         err_sum = err
         err_diff = err
 
@@ -319,7 +307,7 @@ class PIDEnv(gym.Env):
         # err /= self.max_err
         # err_sum /= self.max_sum
         # err_diff /= self.max_diff
-        
+
         obs['parallelism'] = obs['parallelism'] / self.max_par
         obs['concurrency'] = obs['concurrency'] / self.max_par
 
@@ -364,7 +352,7 @@ class PIDEnv(gym.Env):
         for i in range(df.shape[0] - 1):
             current_row = df.tail(n=1)
 
-            obs = current_row[self.obs_cols]
+            obs = current_row[self.data_columns]
             action = obs[['parallelism', 'concurrency']]
             next_obs = df.iloc[i + 1]
             thrpt, rtt = env_utils.smallest_throughput_rtt(last_row=current_row)
@@ -375,9 +363,6 @@ class PIDEnv(gym.Env):
                 max_cc=self.create_opt_request.max_concurrency,
                 p=current_row['parallelism'].iloc[-1],
                 max_p=self.create_opt_request.max_parallelism,
-                max_cpu_freq=current_row['cpu_frequency_max'].iloc[-1],
-                min_cpu_freq=current_row['cpu_frequency_min'].iloc[-1],
-                cpu_freq=current_row['cpu_frequency_current'].iloc[-1]
             )
             reward = JacobReward.calculate(reward_params)
             # current_job_id = current_row['jobId']

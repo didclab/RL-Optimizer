@@ -3,6 +3,7 @@ import time
 import numpy as np
 import torch
 
+
 def smallest_throughput_rtt(last_row):
     # if rtt is 0 then it is a vfs node and using disk.
     use_write = False
@@ -28,19 +29,18 @@ def smallest_throughput_rtt(last_row):
 
     return thrpt, rtt
 
+
 def test_agent(runner, writer=None, eval_episodes=10, seed=0,
                use_checkpoint=None, use_id=None, agent_cons=None):
 
     if use_checkpoint is None:
         runner.agent.set_eval()
 
-    options = {'launch_job': False}
-    state = runner.env.reset(options=options)[0]  # gurantees job is running
+    options = {'launch_job': False if use_id is None else True}
+    state = runner.env.reset(options=options)[0]  # guarantees job is running
 
     episodes_reward = []
-    terminated = False
-
-    job_size = 32. # Gb
+    job_size = 32.  # Gb
 
     means = runner.stats.loc['mean']
     stds = runner.stats.loc['std']
@@ -48,47 +48,34 @@ def test_agent(runner, writer=None, eval_episodes=10, seed=0,
     reward_type = 'ratio'
 
     greedy_actions = [3, 2, 1, 1]
-    i = 0
 
     action_log = None
     state_log = None
 
     if runner.config['log_action']:
         action_log = open("actions_eval.log", 'a')
-        # if use_id is None:
-        #     action_log = open("actions_eval.log", 'a')
-        # else:
-        #     action_log = open("actions_eval_"+str(use_id)+".log", 'a')
 
     if runner.config['log_state']:
         state_log = open("state_eval.log", 'a')
-        # if use_id is None:
-        #     state_log = open("states_eval.log", 'a')
-        # else:
-        #     state_log = open("states_eval_"+str(use_id)+".log", 'a')
 
-    eval_agent = None
-    check_agent = None
+    eval_agent = runner.agent
     # if use_checkpoint is not None:
     #     state_dim = runner.env.observation_space.shape[0]
     #     action_dim = runner.action_space.n
 
     #     check_agent = bdq_agents.BDQAgent(
     #         state_dim=state_dim, action_dims=[action_dim, action_dim], device=runner.device, num_actions=2,
-    #         decay=0.992, writer=writer
+    #         decay=0.992, writer=None
     #     )
 
-
     start_ep = 0 if use_id is None else use_id
-    switch_ep = eval_episodes >> 1
-    for ep in tqdm(range(start_ep, eval_episodes, 1), unit='ep'):
-        print("[DEBUG/TRAIN]", str(norm_obs.shape), str(norm_next_obs.shape))
+    # switch_ep = eval_episodes >> 1
+    range_itr = range(start_ep, start_ep + eval_episodes, 1)
+    reset_till = start_ep + eval_episodes - 1
+    if use_id is None:
+        range_itr = tqdm(range_itr, unit='ep')
+    for ep in range_itr:
         episode_reward = 0
-
-        if ep < switch_ep or use_id is None:
-            eval_agent = runner.agent
-        else:
-            eval_agent = check_agent
 
         if action_log is not None:
             action_log.write("======= Episode " + str(ep) + " =======\n")
@@ -102,7 +89,7 @@ def test_agent(runner, writer=None, eval_episodes=10, seed=0,
         while not terminated:
             if not runner.use_pid_env:
                 state = (state - means[runner.obs_cols].to_numpy()) / \
-                    (stds[runner.obs_cols].to_numpy() + 1e-3)
+                        (stds[runner.obs_cols].to_numpy() + 1e-3)
 
             if state_log is not None:
                 state_log.write(np.array2string(np.array(state), precision=3, seperator=',') + '\n')
@@ -115,16 +102,7 @@ def test_agent(runner, writer=None, eval_episodes=10, seed=0,
                 else:
                     actions = eval_agent.select_action(np.array(state), bypass_epsilon=True)
 
-            params = actions
-            if runner.trainer_type == "BDQ":
-                params = [runner.actions_to_params[a] for a in actions]
-
-            elif runner.trainer_type == "DDPG" and not runner.config['test_greedy']:
-                # see DDPG train()
-                actions = actions.clip(-1, 1)
-                params = np.maximum((actions + 1) * 8, 1)
-                params = np.rint(params)
-
+            params = [runner.actions_to_params[a] for a in actions]
             next_state, reward, terminated, truncated, info = runner.env.step(params, reward_type=reward_type)
 
             if action_log is not None:
@@ -137,23 +115,17 @@ def test_agent(runner, writer=None, eval_episodes=10, seed=0,
         throughput = job_size / time_elapsed
         episodes_reward.append(episode_reward)
 
-        if writer is not None:
-            # writer.add_scalar("Eval/episode_reward", episode_reward, ep)
+        if writer:
             writer.add_scalar("Eval/average_reward_step", episode_reward / ts, ep)
             writer.add_scalar("Eval/throughput", throughput, ep)
 
-        if action_log:
-            action_log.flush()
-
-        if ep < eval_episodes-1:
-            i = 0
+        if ep < reset_till:
             state = runner.env.reset(options={'launch_job': True})[0]
 
-
-    # action_log.close()
     if writer:
         writer.flush()
-        writer.close()
+        if use_id is None:
+            writer.close()
 
     if state_log:
         state_log.flush()
@@ -164,6 +136,7 @@ def test_agent(runner, writer=None, eval_episodes=10, seed=0,
         action_log.close()
 
     return np.mean(episodes_reward)
+
 
 def consult_agent(runner, writer=None, job=-1, seed=0):
     """
@@ -286,7 +259,6 @@ def consult_agent(runner, writer=None, job=-1, seed=0):
     if writer is not None:
         writer.add_scalar("Deploy/average_reward_step", episode_reward / ts, job)
         writer.add_scalar("Deploy/throughput", throughput, job)
-
 
     if writer:
         writer.flush()
