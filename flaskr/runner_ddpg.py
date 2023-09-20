@@ -29,8 +29,8 @@ if enable_tensorboard:
 
 class DDPGTrainer(AbstractTrainer):
 
-    def __init__(self, create_opt_request=classes.CreateOptimizerRequest, max_episodes=100, batch_size=64,
-                 update_policy_time_steps=20, config_file='config/default.json'):
+    def __init__(self, create_opt_request: classes.CreateOptimizerRequest, max_episodes=100, batch_size=64,
+                 update_policy_time_steps=20, config_file='config/default.json', hook=None):
         super().__init__("DDPG")
         """
         self.obs_cols = ['active_core_count', 'allocatedMemory',
@@ -42,7 +42,7 @@ class DDPGTrainer(AbstractTrainer):
                          'jobSize', 'parallelism', 'pipelining', 'read_throughput', 'source_latency', 'source_rtt',
                          'write_throughput']
         """
-        self.config = self.parse_config(config_file)
+        self.config = parse_config(config_file)
         self.obs_cols = ['active_core_count',
                          'dropin', 'dropout', 'packets_recv', 'packets_sent', 'chunkSize', 'concurrency',
                          'destination_latency', 'destination_rtt',
@@ -113,6 +113,14 @@ class DDPGTrainer(AbstractTrainer):
             print("[INFO] DDPG: Tensorboard Enabled")
         else:
             print("[INFO] DDPG: Tensorboard Disabled")
+
+    def clone_agent(self):
+        state_dim = self.env.observation_space.shape[0]
+        action_dim = self.env.action_space.shape[0]
+        return ddpg_agents.DDPGAgent(
+            state_dim=state_dim, action_dim=action_dim, device=self.device,
+            max_action=self.create_opt_request.max_concurrency
+        )
 
     def warm_buffer(self):
         print("Starting to warm the DDPG buffer")

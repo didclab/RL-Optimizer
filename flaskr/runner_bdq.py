@@ -1,6 +1,5 @@
 import gymnasium.spaces
 import torch
-import os
 import time
 
 from .runner_abstract import *
@@ -30,11 +29,13 @@ enable_tensorboard = False
 
 class BDQTrainer(AbstractTrainer):
     def __init__(self, create_opt_request: classes.CreateOptimizerRequest, max_episodes=100, batch_size=64,
-                 config_file='config/default.json'):
+                 config_file='config/default.json', hook=None):
         global writer, enable_tensorboard
         super().__init__("BDQ")
 
-        self.config = self.parse_config(config_file)
+        self.config = parse_config(config_file)
+        self.hook = hook  # sync function to manager
+
         if self.config['tensorboard_path'] is not None:
             writer = SummaryWriter(self.config['tensorboard_path'])
             enable_tensorboard = True
@@ -134,10 +135,26 @@ class BDQTrainer(AbstractTrainer):
             self.save_file_name = f"BDQ_{'influx_gym_env'}"
         self.training_flag = False
 
+        self.upsync_frequency = self.config['upsync_frequency']
+        self.upsync_tau = self.config['upsync_tau']
+        self.hook_frequency = self.config['hook_frequency']
+
         if enable_tensorboard:
             print("[INFO] Tensorboard Enabled")
         else:
             print("[INFO] Tensorboard Disabled")
+
+    def clone_agent(self):
+        """
+        Needed for bootstrapping
+        """
+        state_dim = self.env.observation_space.shape[0]
+        action_dim = self.action_space.n
+
+        return bdq_agents.BDQAgent(
+            state_dim=state_dim, action_dims=[action_dim, action_dim], device=self.device, num_actions=2,
+            decay=0.992, writer=None
+        )
 
     def warm_buffer(self):
         if self.pretrain_mode:
@@ -327,12 +344,21 @@ class BDQTrainer(AbstractTrainer):
         cur_freq_max = self.env.freq_max
 
         step_c = 0
+        hook_counter = 0
         for episode in tqdm(range(max_episodes), unit='ep'):
             episode_reward = 0
             terminated = False
 
             # print("BDQTrainer.train(): starting episode", episode+1)
             eval_counter += 1
+            if self.hook is not None and eval_counter % self.upsync_frequency == 0:
+                bdq_agents.BDQAgent.soft_update_agent(self.agent, self.master_model, self.upsync_tau)
+                hook_counter += 1
+
+                if hook_counter == self.hook_frequency:
+                    hook_counter = 0
+                    self.hook()
+
             if eval_counter == eval_when:
                 eval_counter = 0
                 # 1. save model to temp
@@ -419,7 +445,7 @@ class BDQTrainer(AbstractTrainer):
                     writer.add_scalar("Train/throughput", 32. / time_elapsed, episode)
 
                 ts = 0
-                if (episode+1) < max_episodes and eval_counter < eval_when-1:
+                if (episode+1) < max_episodes and (eval_counter < eval_when-1 or eval_when < 0):
                     obs = self.env.reset(options={'launch_job': True})[0]
                     obs = np.asarray(a=obs, dtype=np.float64)
 
@@ -430,7 +456,7 @@ class BDQTrainer(AbstractTrainer):
                     # print("[Epsilon-Decay] Updating Epsilon")
                     self.agent.update_epsilon()
 
-                self.agent.save_checkpoint(self.config["savefile_name"] + '_temp')
+                # self.agent.save_checkpoint(self.config["savefile_name"] + '_temp')
 
         self.training_flag = False
         self.agent.save_checkpoint(self.config["savefile_name"] + '_final')

@@ -1,9 +1,14 @@
 {
     "start_from_chkpt": true,
-    "tensorboard_path": "./runs/train_pid5_bdq/",
+    "tensorboard_path": null,
     
     "use_pid":true,
     "pid_frequency_mix": 0.4,
+
+    "upsync_frequency": 2,
+    "upsync_tau": 0.9,
+    "hook_frequency": 2,
+    "hook_tau": 0.9,
 
     "pretrain": false,
     "data": "data/balanced_influx_data.csv",

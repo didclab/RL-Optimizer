@@ -120,17 +120,9 @@ def create_optimizer():
                 scheduler.start()
 
         # this is stupid; will refactor
-        elif create_opt.optimizerType == optim_map.bo:
-            optim_map.create_optimizer(create_opt)
+        all_opts = [optim_map.bo, optim_map.maddpg, optim_map.ddpg, optim_map.bdq, optim_map.bdq_par]
 
-        elif create_opt.optimizerType == optim_map.maddpg:
-            # creates the optimizer maddpg
-            optim_map.create_optimizer(create_opt)
-
-        elif create_opt.optimizerType == optim_map.ddpg:
-            optim_map.create_optimizer(create_opt)
-
-        elif create_opt.optimizerType == optim_map.bdq:
+        if create_opt.optimizerType in all_opts:
             optim_map.create_optimizer(create_opt)
 
         return ('', 204)

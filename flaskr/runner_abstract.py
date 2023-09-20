@@ -56,12 +56,23 @@ def load_clean_norm_dataset(path: str) -> pandas.DataFrame:
     return df_final
 
 
+def parse_config(json_file="config/default.json"):
+    with open(json_file, 'r') as f:
+        configs = json.load(f)
+
+    return configs
+
+
 class AbstractTrainer(ABC):
     def __init__(self, trainer_type):
         self.trainer_type = trainer_type
+        self.master_model = None
 
     def warm_buffer(self):
         pass
+
+    def set_master_model(self, master_model):
+        self.master_model = master_model
 
     @abstractmethod
     def train(self, *args, **kwargs):
@@ -79,8 +90,6 @@ class AbstractTrainer(ABC):
     def close(self):
         pass
 
-    def parse_config(self, json_file="config/default.json"):
-        with open(json_file, 'r') as f:
-            configs = json.load(f)
-
-        return configs
+    @abstractmethod
+    def clone_agent(self):
+        pass

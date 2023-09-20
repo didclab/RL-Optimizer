@@ -19,7 +19,7 @@ class BDQAgent(AbstractAgent, object):
     def __init__(self, state_dim, action_dims: list,
                  device, num_actions=1, discount=0.99, tau=0.005, decay=0.9966, evaluate=False,
                  writer=None) -> None:
-        super().__init__()
+        super().__init__("BDQ")
         self.device = device
         self.discount = discount
         self.tau = tau
@@ -63,12 +63,26 @@ class BDQAgent(AbstractAgent, object):
         self.optimizer_state = optim.Adam(self.state_net.parameters(), lr=1e-3)
         self.optimizer_advs = []
         for i in range(self.num_actions):
-            self.optimizer_advs.append(optim.Adam(
-                self.adv_nets[i].parameters(), lr=1e-3))
+            self.optimizer_advs.append(optim.Adam(self.adv_nets[i].parameters(), lr=1e-3))
 
         self.epsilon = 1.
         # rated for 2000 episodes
         self.decay = decay
+
+    @staticmethod
+    def soft_update_agent(local: "BDQAgent", target: "BDQAgent", tau):
+        """
+        UP-SYNC
+        """
+        BDQAgent.soft_update(local.pre_net, target.pre_net, tau)
+        BDQAgent.soft_update(local.state_net, target.state_net, tau)
+        for i in range(local.num_actions):
+            BDQAgent.soft_update(local.adv_nets[i], target.adv_nets[i], tau)
+
+        BDQAgent.soft_update(target.pre_net, target.pre_target, target.tau)
+        BDQAgent.soft_update(target.state_net, target.state_target, target.tau)
+        for i in range(target.num_actions):
+            BDQAgent.soft_update(target.adv_nets[i], target.adv_targets[i], target.tau)
 
     def update_epsilon(self):
         self.epsilon = max(0.005, self.epsilon * self.decay)
@@ -220,8 +234,7 @@ class BDQAgent(AbstractAgent, object):
         BDQAgent.soft_update(self.pre_net, self.pre_target, self.tau)
         BDQAgent.soft_update(self.state_net, self.state_target, self.tau)
         for i in range(self.num_actions):
-            BDQAgent.soft_update(
-                self.adv_targets[i], self.adv_nets[i], self.tau)
+            BDQAgent.soft_update(self.adv_nets[i], self.adv_targets[i], self.tau)
 
     def save_checkpoint(self, filename):
         torch.save(self.pre_net.state_dict(), filename + '_pre_net')

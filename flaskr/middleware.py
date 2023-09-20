@@ -19,6 +19,9 @@ class OptimizerMap(object):
         self.maddpg = "MADDPG"
         self.ddpg = "DDPG"
         self.bdq = "BDQ"
+        self.bdq_par = "BDQP"
+
+        self.manager_id = None
         self.thread_map = {}
 
     def get_optimizer(self, node_id):
@@ -57,6 +60,21 @@ class OptimizerMap(object):
                 thread = threading.Thread(target=trainer.train)
                 self.thread_map[create_req.node_id] = thread
                 thread.start()
+
+            elif create_req.optimizerType == self.bdq_par:
+                if self.manager_id is None:
+                    print("[DEBUG/MIDDLEWARE] Creating BDQ manager")
+                    manager = Trainer.wrap(create_req=create_req)
+                    self.node_id_to_optimizer[create_req.node_id] = create_req.optimizerType
+                    self.optimizer_map[create_req.node_id] = manager
+                    manager.start_runner(create_req=create_req)
+                    self.manager_id = create_req.node_id
+                else:
+                    print("[DEBUG/MIDDLEWARE] Using existing BDQ manager")
+                    manager = self.optimizer_map[self.manager_id]
+                    manager.start_runner(create_req=create_req)
+                    self.optimizer_map[create_req.node_id] = manager
+
             else:
                 return False
 
@@ -71,6 +89,10 @@ class OptimizerMap(object):
                     thread = threading.Thread(target=trainer.train)
                     self.thread_map[create_req.node_id] = thread
                     thread.start()
+
+            elif create_req.optimizerType == self.bdq_par:
+                manager = self.optimizer_map[create_req.node_id]
+                manager.run_map[create_req.node_id].set_create_request(create_opt_req=create_req)
 
             print("Optimizer already exists for", create_req.node_id)
             return False

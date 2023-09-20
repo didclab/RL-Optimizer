@@ -13,3 +13,4 @@ stable-baselines3
 pandas
 gymnasium
 pettingzoo
+tqdm
