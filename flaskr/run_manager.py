@@ -26,10 +26,9 @@ class RunManager(object):
         TODO: complete runner-internal up-syncs with soft_update_agent()
         TODO: add calls to hook/down-sync in runners
         """
-        print("[DEBUG/start_runner]", create_req.host_url)
         node_id = create_req.node_id
         if node_id not in self.run_map:
-            self.run_map[node_id] = self.run_class(create_req, hook=self.sync_down)
+            self.run_map[node_id] = self.run_class(create_opt_request=create_req, hook=self.sync_down)
         else:
             self.run_map[node_id].set_create_request(create_opt_req=create_req)
 
