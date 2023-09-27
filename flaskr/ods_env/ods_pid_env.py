@@ -97,6 +97,7 @@ class PIDEnv(gym.Env):
         self.max_sum = 300 * self.max_err
         self.max_diff = (0.75 * self.max_err) / 4
 
+        print("[DEBUG/PID_ENV]", self.host_url)
         print("Finished constructing the PID Gym Env")
 
     def set_target_thput(self, target_thput):

@@ -207,7 +207,6 @@ def query_batch_job_direct(jobId, ts_url=None):
     target_url = transfer_service_url
     if ts_url is not None:
         target_url = ts_url
-        print("[DEBUG/query_batch]", target_url)
 
     url = "{}/api/v1/job/execution".format(target_url)
     params = {"jobId": jobId}
