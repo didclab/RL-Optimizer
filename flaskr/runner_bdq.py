@@ -54,6 +54,7 @@ class BDQTrainer(AbstractTrainer):
         self.obs_cols_pid = ['parallelism', 'concurrency', 'err', 'err_sum', 'err_diff']
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.host_url = create_opt_request.host_url
 
         self.use_pid_env = self.config['use_pid']
         if self.use_pid_env:

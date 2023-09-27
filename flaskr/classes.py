@@ -1,6 +1,6 @@
 class CreateOptimizerRequest(object):
     def __init__(self, node_id, max_concurrency, max_parallelism, max_pipesize, max_chunk_size, optimizer_type,
-                 file_count, job_id, db_type):
+                 file_count, job_id, db_type, host_url=None):
         self.node_id = node_id
         self.max_concurrency = max_concurrency  # upper limit on concurrency count
         self.max_parallelism = max_parallelism  # upper limit on parallelism count
@@ -11,6 +11,7 @@ class CreateOptimizerRequest(object):
         self.job_id = job_id
         self.launch_job = False
         self.db_type = db_type
+        self.host_url = host_url
 
     def __str__(self):
         rep = "CreateOptimizerRequest object\n"

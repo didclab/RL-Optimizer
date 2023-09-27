@@ -39,8 +39,10 @@ def construct_reward():
 class PIDEnv(gym.Env):
 
     def __init__(self, create_opt_req: CreateOptimizerRequest, target_thput, config=None,
-                 action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns=[]):
+                 action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns=[],
+                 host_url=None):
         super(PIDEnv, self).__init__()
+        self.host_url = host_url
         self.replay_buffer = None
         self.create_opt_request = create_opt_req
         print(create_opt_req.node_id.split("-"))
@@ -141,7 +143,7 @@ class PIDEnv(gym.Env):
             last_row = self.space_df.tail(n=1)
             observation = last_row[self.data_columns]
             if self.create_opt_request.db_type == "hsql":
-                terminated, _ = oh.query_if_job_done_direct(self.job_id)
+                terminated, _ = oh.query_if_job_done_direct(self.job_id, self.host_url)
             else:
                 terminated, _ = oh.query_if_job_done(self.job_id)
 
@@ -193,7 +195,7 @@ class PIDEnv(gym.Env):
                     fail_count = 0
 
             if self.create_opt_request.db_type == "hsql":
-                terminated, _ = oh.query_if_job_done_direct(self.job_id)
+                terminated, _ = oh.query_if_job_done_direct(self.job_id, self.host_url)
             else:
                 terminated, _ = oh.query_if_job_done(self.job_id)
 
