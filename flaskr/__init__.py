@@ -101,10 +101,11 @@ def create_optimizer():
     if request.method == 'POST':
         json_dict = request.json
         print(json_dict)
+        host_url = "http://" + str(request.remote_addr) + ":8092"
         create_opt = CreateOptimizerRequest(
             json_dict['nodeId'], json_dict['maxConcurrency'], json_dict['maxParallelism'], json_dict['maxPipelining'],
             json_dict['maxChunkSize'], json_dict['optimizerType'], json_dict['fileCount'], json_dict['jobId'],
-            json_dict['dbType'], host_url=request.host_url
+            json_dict['dbType'], host_url=host_url
         )
 
         print(create_opt.__str__())
