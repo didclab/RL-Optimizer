@@ -39,10 +39,9 @@ def construct_reward():
 class PIDEnv(gym.Env):
 
     def __init__(self, create_opt_req: CreateOptimizerRequest, target_thput, config=None,
-                 action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns=[],
-                 host_url=None):
+                 action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns=[]):
         super(PIDEnv, self).__init__()
-        self.host_url = host_url
+        self.host_url = create_opt_req.host_url
         self.replay_buffer = None
         self.create_opt_request = create_opt_req
         print(create_opt_req.node_id.split("-"))
