@@ -205,7 +205,7 @@ def transform_batch_info_json_to_transfer_request(batch_info_json):
 
 def query_batch_job_direct(jobId, ts_url=None):
     target_url = transfer_service_url
-    if ts_url is not None:
+    if ts_url is None:
         target_url = ts_url
 
     url = "{}/api/v1/job/execution".format(target_url)
@@ -215,7 +215,7 @@ def query_batch_job_direct(jobId, ts_url=None):
 
 def query_job_ids_direct(ts_url=None):
     target_url = transfer_service_url
-    if ts_url is not None:
+    if ts_url is None:
         target_url = ts_url
 
     url = "{}/api/v1/job/ids".format(target_url)
