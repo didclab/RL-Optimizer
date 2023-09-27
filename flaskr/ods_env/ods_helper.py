@@ -205,8 +205,9 @@ def transform_batch_info_json_to_transfer_request(batch_info_json):
 
 def query_batch_job_direct(jobId, ts_url=None):
     target_url = transfer_service_url
-    if ts_url is None:
+    if ts_url is not None:
         target_url = ts_url
+        print("[DEBUG/query_batch]", target_url)
 
     url = "{}/api/v1/job/execution".format(target_url)
     params = {"jobId": jobId}
@@ -215,7 +216,7 @@ def query_batch_job_direct(jobId, ts_url=None):
 
 def query_job_ids_direct(ts_url=None):
     target_url = transfer_service_url
-    if ts_url is None:
+    if ts_url is not None:
         target_url = ts_url
 
     url = "{}/api/v1/job/ids".format(target_url)
@@ -223,7 +224,7 @@ def query_job_ids_direct(ts_url=None):
 
 
 def query_if_job_done_direct(jobId, ts_url=None):
-    meta_data = query_batch_job_direct(jobId, ts_url)
+    meta_data = query_batch_job_direct(jobId, ts_url=ts_url)
     status = meta_data['status']
     if status == COMPLETED or status == FAILED or status == ABANDONED:
         return True, meta_data
@@ -232,7 +233,7 @@ def query_if_job_done_direct(jobId, ts_url=None):
 
 
 def query_if_job_running_direct(jobId, ts_url=None):
-    meta_data = query_batch_job_direct(jobId)
+    meta_data = query_batch_job_direct(jobId, ts_url=ts_url)
     status = meta_data['status']
     if status == STARTING or status == STARTED or status == RUNNING:
         return True, meta_data

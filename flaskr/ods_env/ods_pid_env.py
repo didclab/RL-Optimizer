@@ -143,7 +143,7 @@ class PIDEnv(gym.Env):
             last_row = self.space_df.tail(n=1)
             observation = last_row[self.data_columns]
             if self.create_opt_request.db_type == "hsql":
-                terminated, _ = oh.query_if_job_done_direct(self.job_id, self.host_url)
+                terminated, _ = oh.query_if_job_done_direct(self.job_id, ts_url=self.host_url)
             else:
                 terminated, _ = oh.query_if_job_done(self.job_id)
 
@@ -195,7 +195,7 @@ class PIDEnv(gym.Env):
                     fail_count = 0
 
             if self.create_opt_request.db_type == "hsql":
-                terminated, _ = oh.query_if_job_done_direct(self.job_id, self.host_url)
+                terminated, _ = oh.query_if_job_done_direct(self.job_id, ts_url=self.host_url)
             else:
                 terminated, _ = oh.query_if_job_done(self.job_id)
 
