@@ -42,7 +42,6 @@ class PIDEnv(gym.Env):
                  action_space_discrete=False, render_mode=None, time_window="-2m", observation_columns=[]):
         super(PIDEnv, self).__init__()
         self.host_url = create_opt_req.host_url
-        print("[DEBUG/PIDEnv]", self.host_url)
         self.replay_buffer = None
         self.create_opt_request = create_opt_req
         print(create_opt_req.node_id.split("-"))
@@ -266,7 +265,7 @@ class PIDEnv(gym.Env):
         self.past_utility = self.past_utility / 4
         if options['launch_job']:
             if self.create_opt_request.db_type == "hsql":
-                first_meta_data = oh.query_batch_job_direct(self.job_id)
+                first_meta_data = oh.query_batch_job_direct(self.job_id, ts_url=self.host_url)
             else:
                 first_meta_data = oh.query_job_batch_obj(self.job_id)
             # print("InfluxEnv: relaunching job: ", first_meta_data['jobParameters'])
