@@ -24,6 +24,7 @@ class CreateOptimizerRequest(object):
         rep += "fileCount: " + str(self.file_count) + "\n"
         rep += "job_id: " + str(self.job_id) + "\n"
         rep += "db_type: " + str(self.db_type) + "\n"
+        rep += "host_url: " + str(self.host_url) + "\n"
         return rep
 
     def set_launch_job(self, launch_job=False):
